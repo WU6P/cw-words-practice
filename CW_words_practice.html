@@ -236,16 +236,17 @@ function headTailSimilar(correct, candidate) {
   return charSimilar(au[0], bu[0]) && charSimilar(au[au.length - 1], bu[bu.length - 1]);
 }
 
-// Combined pool used for distractors regardless of active session
-const DISTRACTOR_POOL = [...new Set([...WORDS.top2000, ...WORDS.qso])];
+// Combined pool used for distractors regardless of active session (normalized to lowercase)
+const DISTRACTOR_POOL = [...new Set([...WORDS.top2000, ...WORDS.qso].map(w => w.toLowerCase()))];
 
 function makeQuestion(listKey) {
   const pool = getWordPool(listKey);
   const correct = pool[Math.floor(Math.random() * pool.length)];
+  const correctLower = correct.toLowerCase();
 
   // Score full distractor pool, tagging head+tail matches
   const ranked = DISTRACTOR_POOL
-    .filter(w => w !== correct)
+    .filter(w => w.toLowerCase() !== correctLower)
     .map(w => ({ w, s: wordSimilarity(correct, w), ht: headTailSimilar(correct, w) }))
     .sort((a, b) => b.s - a.s);
 
@@ -268,8 +269,8 @@ function makeQuestion(listKey) {
   let fi = 0;
   while (selected.length < 5) selected.push(ranked[fi++]?.w ?? correct);
 
-  // Guard: correct word must never appear as a distractor
-  const distractors = [...new Set(selected)].filter(w => w !== correct);
+  // Guard: correct word must never appear as a distractor (case-insensitive)
+  const distractors = [...new Set(selected)].filter(w => w.toLowerCase() !== correctLower);
 
   return { correct, choices: [correct, ...distractors].sort(() => Math.random() - 0.5) };
 }
@@ -332,6 +333,7 @@ const state = {
   sessionLog: [],
   tweaks: { theme: _saved.theme ?? 'shack', frequency: _saved.frequency ?? 550 },
   playing: false,            // mutex
+  replaying: false,          // silent replay in progress
   autoPlayTimer: null,
 };
 
@@ -476,15 +478,14 @@ function renderSettings(t) {
   // Word List
   const lblStyle = { display:'block', fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:'10px' };
   const sec1 = el('div', { style:{ marginBottom:'28px' }});
-  sec1.appendChild(el('label', { style:lblStyle }, 'Word List'));
   const grid = el('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }});
   LIST_OPTS.forEach(o => {
     const sel = cfg.listKey === o.key;
     const btn = el('button', { style:{
       padding:'10px 12px', border:`2px solid ${sel ? t.accent : t.border}`,
       borderRadius:'8px', background: sel ? t.accentDim : t.bgCard,
-      color: sel ? t.accent : t.text, fontSize:'13px',
-      fontWeight: sel ? '600' : '400', textAlign:'left', transition:'all 0.12s',
+      color: sel ? t.accent : t.text, fontSize:'15px',
+      fontWeight: sel ? '700' : '600', textAlign:'center', transition:'all 0.12s',
     }}, o.label);
     btn.addEventListener('click', () => { cfg.listKey = o.key; saveTweaks(); render(); });
     grid.appendChild(btn);
@@ -499,7 +500,7 @@ function renderSettings(t) {
   wpmLabel.appendChild(document.createTextNode('Character Speed — '));
   wpmLabel.appendChild(wpmValSpan);
   sec2.appendChild(wpmLabel);
-  const wpmSlider = el('input', { type:'range', min:'10', max:'65', step:'1', value:String(cfg.wpm),
+  const wpmSlider = el('input', { type:'range', min:'10', max:'100', step:'1', value:String(cfg.wpm),
     style:{ accentColor:t.accent }});
   wpmSlider.style.setProperty('--thumb-color', t.accent);
   wpmSlider.style.setProperty('--track-color', t.border);
@@ -512,7 +513,7 @@ function renderSettings(t) {
   sec2.appendChild(wpmSlider);
   const wpmRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
   wpmRange.appendChild(el('span', {}, '10 WPM'));
-  wpmRange.appendChild(el('span', {}, '65 WPM'));
+  wpmRange.appendChild(el('span', {}, '100 WPM'));
   sec2.appendChild(wpmRange);
   wrap.appendChild(sec2);
 
@@ -526,7 +527,7 @@ function renderSettings(t) {
     transition:'border-color 0.15s',
   }});
   settingsToggleBtn.appendChild(el('span', {}, '⚙ More Settings'));
-  settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'12px' }}, 'Farnsworth · Session · Tone · Theme'));
+  settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'12px' }}, 'Tone · Session · Farnsworth · Theme'));
   settingsToggleBtn.addEventListener('click', () => { state.settingsOpen = true; render(); });
   settingsRow.appendChild(settingsToggleBtn);
   wrap.appendChild(settingsRow);
@@ -579,6 +580,46 @@ function renderSettingsModal(t) {
   hdr.appendChild(closeBtn);
   modal.appendChild(hdr);
 
+  // Tone frequency
+  const sec5 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  const freqLabel = el('label', { htmlFor:'freqSlider', style:lblStyle });
+  const freqValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, `${tweaks.frequency} Hz`);
+  freqLabel.appendChild(document.createTextNode('Tone Frequency — '));
+  freqLabel.appendChild(freqValSpan);
+  sec5.appendChild(freqLabel);
+  const freqSlider = el('input', { id:'freqSlider', type:'range', min:'400', max:'800', step:'10', value:String(tweaks.frequency),
+    style:{ accentColor:t.accent }});
+  freqSlider.style.setProperty('--thumb-color', t.accent);
+  freqSlider.style.setProperty('--track-color', t.border);
+  freqSlider.addEventListener('input', () => {
+    tweaks.frequency = +freqSlider.value; saveTweaks(); freqValSpan.textContent = `${tweaks.frequency} Hz`;
+  });
+  freqSlider.addEventListener('change', () => { render(); playTestR(); });
+  sec5.appendChild(freqSlider);
+  const freqRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
+  freqRange.appendChild(el('span', {}, '400 Hz'));
+  freqRange.appendChild(el('span', {}, '800 Hz'));
+  sec5.appendChild(freqRange);
+  modal.appendChild(sec5);
+
+  // Questions per session
+  const sec4 = el('div', { style:{ marginBottom:'20px' }});
+  sec4.appendChild(el('label', { style:lblStyle }, 'Questions per Session'));
+  const sizeRow = el('div', { style:{ display:'flex', gap:'8px' }});
+  [10, 20, 50, 100].forEach(n => {
+    const sel = cfg.sessionSize === n;
+    const btn = el('button', { style:{
+      flex:'1', padding:'10px 4px', border:`2px solid ${sel ? t.accent : t.border}`,
+      borderRadius:'8px', background: sel ? t.accentDim : t.bgCard,
+      color: sel ? t.accent : t.text, fontSize:'14px',
+      fontWeight: sel ? '700' : '400', fontFamily:t.mono, transition:'all 0.12s',
+    }}, String(n));
+    btn.addEventListener('click', () => { cfg.sessionSize = n; saveTweaks(); render(); });
+    sizeRow.appendChild(btn);
+  });
+  sec4.appendChild(sizeRow);
+  modal.appendChild(sec4);
+
   // Farnsworth
   const sec3 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
   const fwRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
@@ -609,46 +650,6 @@ function renderSettingsModal(t) {
     sec3.appendChild(fwExtra);
   }
   modal.appendChild(sec3);
-
-  // Questions per session
-  const sec4 = el('div', { style:{ marginBottom:'20px' }});
-  sec4.appendChild(el('label', { style:lblStyle }, 'Questions per Session'));
-  const sizeRow = el('div', { style:{ display:'flex', gap:'8px' }});
-  [10, 20, 50, 100].forEach(n => {
-    const sel = cfg.sessionSize === n;
-    const btn = el('button', { style:{
-      flex:'1', padding:'10px 4px', border:`2px solid ${sel ? t.accent : t.border}`,
-      borderRadius:'8px', background: sel ? t.accentDim : t.bgCard,
-      color: sel ? t.accent : t.text, fontSize:'14px',
-      fontWeight: sel ? '700' : '400', fontFamily:t.mono, transition:'all 0.12s',
-    }}, String(n));
-    btn.addEventListener('click', () => { cfg.sessionSize = n; saveTweaks(); render(); });
-    sizeRow.appendChild(btn);
-  });
-  sec4.appendChild(sizeRow);
-  modal.appendChild(sec4);
-
-  // Tone frequency
-  const sec5 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
-  const freqLabel = el('label', { htmlFor:'freqSlider', style:lblStyle });
-  const freqValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, `${tweaks.frequency} Hz`);
-  freqLabel.appendChild(document.createTextNode('Tone Frequency — '));
-  freqLabel.appendChild(freqValSpan);
-  sec5.appendChild(freqLabel);
-  const freqSlider = el('input', { id:'freqSlider', type:'range', min:'400', max:'800', step:'10', value:String(tweaks.frequency),
-    style:{ accentColor:t.accent }});
-  freqSlider.style.setProperty('--thumb-color', t.accent);
-  freqSlider.style.setProperty('--track-color', t.border);
-  freqSlider.addEventListener('input', () => {
-    tweaks.frequency = +freqSlider.value; saveTweaks(); freqValSpan.textContent = `${tweaks.frequency} Hz`;
-  });
-  freqSlider.addEventListener('change', () => { render(); playTestR(); });
-  sec5.appendChild(freqSlider);
-  const freqRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
-  freqRange.appendChild(el('span', {}, '400 Hz'));
-  freqRange.appendChild(el('span', {}, '800 Hz'));
-  sec5.appendChild(freqRange);
-  modal.appendChild(sec5);
 
   // Theme picker
   const sec6 = el('div', { style:{ marginBottom:'8px' }});
@@ -693,19 +694,24 @@ function renderPractice(t) {
 
   const wrap = el('div', { className:'fade-in', style:{ paddingTop:'28px', paddingBottom:'20px' }});
 
-  // Session name
+  // Session name + speed
   const sessionLabel = LIST_OPTS.find(o => o.key === state.cfg.listKey)?.label ?? state.cfg.listKey;
-  wrap.appendChild(el('div', { style:{
-    textAlign:'center', fontSize:'12px', fontWeight:'600', color:t.textMuted,
-    letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:'16px',
-  }}, sessionLabel));
+  const wpmLabel = state.cfg.farnsworth ? `${state.cfg.wpm}/${state.cfg.fwpm} WPM` : `${state.cfg.wpm} WPM`;
+  const headerRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', gap:'10px', marginBottom:'16px' }});
+  headerRow.appendChild(el('span', { style:{ fontSize:'12px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, sessionLabel));
+  headerRow.appendChild(el('span', { style:{ fontSize:'11px', fontWeight:'600', color:t.accent, letterSpacing:'1px' }}, wpmLabel));
+  wrap.appendChild(headerRow);
 
   // Play card
   const card = el('div', { style:{
     background:t.bgCard, border:`1px solid ${t.border}`,
     borderRadius: t.scanlines ? '2px' : '16px',
     padding:'28px 24px', textAlign:'center', marginBottom:'20px', position:'relative',
+    cursor: (canAnswer || answered) ? 'pointer' : 'default',
   }});
+  if (canAnswer || answered) {
+    card.addEventListener('click', doReplay);
+  }
 
   // Corner brackets (vintage)
   if (t.scanlines) {
@@ -723,11 +729,17 @@ function renderPractice(t) {
   }
 
   // Play area (88px tall)
-  const playArea = el('div', { style:{ height:'88px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }});
-  if (playState === 'playing') {
+  const playArea = el('div', { id:'cw-play-area', style:{ height:'88px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }});
+  if (playState === 'playing' || state.replaying) {
     playArea.appendChild(renderWave(t));
   } else if (playState === 'ready') {
-    playArea.appendChild(el('div', { style:{ fontSize:'15px', color:t.textMuted, fontWeight:'500' }}, 'Select the word you heard'));
+    const replayCircle = el('button', { 'aria-label':'Replay Morse code', style:{
+      width:'72px', height:'72px', borderRadius:'50%', background:'none',
+      border:`2px solid ${t.border}`, display:'flex', alignItems:'center', justifyContent:'center',
+      fontSize:'28px', color:t.textMuted, transition:'all 0.15s', cursor:'pointer',
+    }}, '↺');
+    replayCircle.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
+    playArea.appendChild(replayCircle);
   } else if (playState === 'idle') {
     const playBtn = el('button', { className:'btn-icon-play', 'aria-label':'Play Morse code', style:{
       width:'88px', height:'88px', borderRadius:'50%', background:t.accent,
@@ -747,10 +759,10 @@ function renderPractice(t) {
   const statusLine = el('div', { 'aria-live':'polite', 'aria-atomic':'true', style:{ fontSize:'13px', color:t.textMuted, minHeight:'18px' }});
   if (playState === 'idle')    statusLine.textContent = 'Loading…';
   if (playState === 'playing') { statusLine.textContent = 'Listening…'; statusLine.style.color = t.accent; statusLine.style.fontWeight = '500'; }
-  if (answered) {
-    const ok = chosen === q.correct;
-    statusLine.textContent = ok ? '✓ Correct!' : '✗ Incorrect';
-    statusLine.style.color = ok ? t.correct : t.wrong;
+  if (playState === 'ready')   statusLine.textContent = 'Select the word you heard';
+  if (answered && chosen === q.correct) {
+    statusLine.textContent = '✓ Correct!';
+    statusLine.style.color = t.correct;
     statusLine.style.fontWeight = '600';
     statusLine.style.fontSize = '14px';
   }
@@ -772,12 +784,12 @@ function renderPractice(t) {
       border:`2px solid ${t.border}`, borderRadius:'10px',
       color:t.text, fontSize:'14px', fontWeight:'600', transition:'border-color 0.15s',
     }}, '↺ Replay');
-    replayBtn.addEventListener('click', doReplay);
+    replayBtn.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
     const nextBtn = el('button', { style:{
       flex:'2', padding:'12px', background:t.accent, border:'none',
       borderRadius:'10px', color:t.accentText, fontSize:'14px', fontWeight:'700', letterSpacing:'1px',
     }}, 'Next →');
-    nextBtn.addEventListener('click', handleNext);
+    nextBtn.addEventListener('click', e => { e.stopPropagation(); handleNext(); });
     btnRow.appendChild(replayBtn);
     btnRow.appendChild(nextBtn);
     reveal.appendChild(btnRow);
@@ -793,29 +805,45 @@ function renderPractice(t) {
     transition:'opacity 0.3s ease',
   }});
   q.choices.forEach((ch, idx) => {
-    let bg = t.bgCard, border = t.border, color = t.text, fw = '500';
+    let bg = t.bgCard, border = t.border, color = t.text, fw = '700';
     if (answered) {
       if (ch === q.correct)    { bg = t.correctDim; border = t.correct; color = t.correct; fw = '700'; }
       else if (ch === chosen)  { bg = t.wrongDim;   border = t.wrong;   color = t.wrong;   fw = '700'; }
       else                     { color = t.textMuted; }
     }
     const btn = el('button', {
-      className: canAnswer ? 'btn-choice-hover' : '',
+      className: (canAnswer || answered) ? 'btn-choice-hover' : '',
       'aria-label': `Choice ${idx + 1}: ${ch}${answered && ch === q.correct ? ' — correct' : answered && ch === chosen ? ' — your answer, incorrect' : ''}`,
       style:{
         padding:'12px 8px', border:`2px solid ${border}`,
         borderRadius: t.scanlines ? '2px' : '10px',
-        background:bg, color, fontSize:'13px', fontWeight:fw,
+        background:bg, color, fontSize:'15px', fontWeight:fw,
         fontFamily:t.mono, letterSpacing:'2px', textAlign:'center', transition:'all 0.15s',
         opacity: (!canAnswer && !answered) ? '0.4' : '1',
         boxShadow: (answered && ch === q.correct && t.scanlines) ? `0 0 8px ${t.correct}88` : 'none',
+        cursor: (canAnswer || answered) ? 'pointer' : 'default',
     }}, ch.toUpperCase());
     if (canAnswer) {
       btn.addEventListener('click', () => handleAnswer(ch));
+    } else if (answered) {
+      btn.addEventListener('click', e => { e.stopPropagation(); doPlayWord(ch); });
     }
     grid.appendChild(btn);
   });
   wrap.appendChild(grid);
+
+  if (canAnswer) {
+    const replayRow = el('div', { style:{ textAlign:'center', marginTop:'10px' }});
+    const replaySmall = el('button', { className:'btn-border-hover', 'aria-label':'Replay Morse code', style:{
+      padding:'8px 24px', background:'none', border:`1px solid ${t.border}`,
+      borderRadius:'8px', color:t.textMuted, fontSize:'13px', fontWeight:'500',
+      transition:'border-color 0.15s', cursor:'pointer',
+    }}, '↺ Replay');
+    replaySmall.addEventListener('click', doReplay);
+    replayRow.appendChild(replaySmall);
+    wrap.appendChild(replayRow);
+  }
+
   return wrap;
 }
 
@@ -958,20 +986,46 @@ async function doPlay() {
   if (state.playState === 'playing') { state.playState = 'ready'; render(); }
 }
 
-async function doReplay() {
+function _showWave() {
+  const pa = document.getElementById('cw-play-area');
+  if (!pa) return;
+  pa.innerHTML = '';
+  pa.appendChild(renderWave(T()));
+}
+
+function _hideWave() {
+  const pa = document.getElementById('cw-play-area');
+  if (!pa) return;
+  const t = T();
+  pa.innerHTML = '';
+  if (state.playState === 'ready') {
+    const btn = el('button', { 'aria-label':'Replay Morse code', style:{
+      width:'72px', height:'72px', borderRadius:'50%', background:'none',
+      border:`2px solid ${t.border}`, display:'flex', alignItems:'center', justifyContent:'center',
+      fontSize:'28px', color:t.textMuted, transition:'all 0.15s', cursor:'pointer',
+    }}, '↺');
+    btn.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
+    pa.appendChild(btn);
+  }
+  // answered state: empty div is a spacer — no content needed
+}
+
+async function doPlayWord(word) {
   if (state.playing) return;
   state.playing = true;
-  state.playState = 'playing';
-  render();
+  state.replaying = true;
+  _showWave();
   const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
   try {
-    await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
+    await playMorseAudio(word, state.cfg.wpm, fwpm, state.tweaks.frequency);
   } finally {
     state.playing = false;
+    state.replaying = false;
   }
-  state.playState = 'answered';
-  render();
+  _hideWave();
 }
+
+function doReplay() { return doPlayWord(state.q.correct); }
 
 function handleAnswer(choice) {
   if (state.playState !== 'ready') return;
@@ -989,20 +1043,7 @@ function handleAnswer(choice) {
       handleNext();
     }, 1100);
   } else {
-    setTimeout(async () => {
-      if (state.playing) return;
-      state.playing = true;
-      state.playState = 'playing';
-      render();
-      const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
-      try {
-        await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
-      } finally {
-        state.playing = false;
-      }
-      state.playState = 'answered';
-      render();
-    }, 400);
+    setTimeout(() => doReplay(), 400);
   }
 }
 
