@@ -459,7 +459,7 @@ function renderSettings(t) {
     if (cfg.fwpm > cfg.wpm) cfg.fwpm = cfg.wpm;
     wpmValSpan.textContent = `${cfg.wpm} WPM`;
   });
-  wpmSlider.addEventListener('change', () => { render(); });
+  wpmSlider.addEventListener('change', () => { render(); playTestR(); });
   sec2.appendChild(wpmSlider);
   const wpmRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
   wpmRange.appendChild(el('span', {}, '10 WPM'));
@@ -552,7 +552,7 @@ function renderSettingsModal(t) {
     fwSlider.style.setProperty('--thumb-color', t.accent);
     fwSlider.style.setProperty('--track-color', t.border);
     fwSlider.addEventListener('input', () => { cfg.fwpm = +fwSlider.value; fwValSpan.textContent = `${cfg.fwpm} WPM`; });
-    fwSlider.addEventListener('change', () => { render(); });
+    fwSlider.addEventListener('change', () => { render(); playTestR(); });
     fwExtra.appendChild(fwSlider);
     const fwRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
     fwRange.appendChild(el('span', {}, '5 WPM'));
@@ -594,7 +594,7 @@ function renderSettingsModal(t) {
   freqSlider.addEventListener('input', () => {
     tweaks.frequency = +freqSlider.value; saveTweaks(); freqValSpan.textContent = `${tweaks.frequency} Hz`;
   });
-  freqSlider.addEventListener('change', () => { render(); });
+  freqSlider.addEventListener('change', () => { render(); playTestR(); });
   sec5.appendChild(freqSlider);
   const freqRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
   freqRange.appendChild(el('span', {}, '400 Hz'));
@@ -618,6 +618,11 @@ function renderSettingsModal(t) {
   });
   sec6.appendChild(themeRow);
   modal.appendChild(sec6);
+
+  // Credit line
+  modal.appendChild(el('div', { style:{
+    textAlign:'center', marginTop:'24px', fontSize:'12px', color:t.textMuted, fontFamily:t.mono, letterSpacing:'1px',
+  }}, 'CW Forever.    Nian WU6P'));
 
   // Done button
   const doneBtn = el('button', { style:{
@@ -858,6 +863,11 @@ function renderToggle(t, on, onClick) {
 }
 
 // ── ACTIONS ───────────────────────────────────────────────────────────────────
+function playTestR() {
+  const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
+  playMorseAudio('R', state.cfg.wpm, fwpm, state.tweaks.frequency);
+}
+
 function goSettings() {
   clearTimeout(state.autoPlayTimer);
   state.screen = 'settings';
