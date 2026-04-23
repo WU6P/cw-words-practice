@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Words Practice</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#d4900a">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon.svg">
+<title>CW Words Practice</title>
 <style>
 /* ── RESET & BASE ─────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -27,6 +30,36 @@ button { cursor: pointer; font-family: inherit; }
 .bar5{animation:pulse 0.7s ease-in-out infinite;animation-delay:0.15s}
 .fade-in  { animation: fadeIn  0.3s ease forwards; }
 .slide-up { animation: slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+
+/* ── REDUCED MOTION (S9) ──────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .bar1,.bar2,.bar3,.bar4,.bar5 { animation: none; opacity: 0.7; }
+  .fade-in  { animation: none; }
+  .slide-up { animation: none; }
+  * { transition-duration: 0.01ms !important; }
+}
+
+/* ── FOCUS RINGS (S5) ─────────────────────────────────────────────────────── */
+button:focus-visible { outline: 2px solid var(--t-accent, #d4900a); outline-offset: 2px; }
+input[type=range]:focus-visible { outline: 2px solid var(--t-accent, #d4900a); outline-offset: 4px; }
+button { -webkit-tap-highlight-color: transparent; }
+
+/* ── HOVER / ACTIVE AFFORDANCES (S4) ─────────────────────────────────────── */
+button:active { transform: scale(0.96); }
+.btn-icon-play:hover  { transform: scale(1.06); }
+.btn-icon-play:active { transform: scale(0.94); }
+.btn-border-hover:hover,
+.btn-border-hover:focus-visible { border-color: var(--t-accent, #d4900a) !important; }
+.btn-choice-hover:hover { background: var(--t-bg-hover, #251c00) !important; }
+
+/* ── RESPONSIVE TYPE (S3) ─────────────────────────────────────────────────── */
+@media (max-width: 360px) {
+  .h1-title   { font-size: clamp(20px, 7vw, 28px) !important; }
+  .score-hero { font-size: clamp(32px, 11vw, 48px) !important; }
+}
+@media (min-width: 768px) {
+  .inner-wrap { max-width: 680px !important; }
+}
 </style>
 </head>
 <body>
@@ -235,7 +268,10 @@ function makeQuestion(listKey) {
   let fi = 0;
   while (selected.length < 5) selected.push(ranked[fi++]?.w ?? correct);
 
-  return { correct, choices: [correct, ...selected].sort(() => Math.random() - 0.5) };
+  // Guard: correct word must never appear as a distractor
+  const distractors = [...new Set(selected)].filter(w => w !== correct);
+
+  return { correct, choices: [correct, ...distractors].sort(() => Math.random() - 0.5) };
 }
 
 // ── THEMES ────────────────────────────────────────────────────────────────────
@@ -273,25 +309,35 @@ const THEMES = {
 };
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem('cw_tweaks')) || {}; }
+  catch { return {}; }
+}
+const _saved = loadSaved();
+
 const state = {
-  screen: 'settings',        // settings | practice | summary
-  cfg: { listKey:'top100', wpm:20, farnsworth:false, fwpm:15, sessionSize:20 },
+  screen: 'settings',
+  cfg: {
+    listKey:     _saved.listKey     ?? 'top100',
+    wpm:         _saved.wpm         ?? 20,
+    farnsworth:  _saved.farnsworth  ?? false,
+    fwpm:        _saved.fwpm        ?? 15,
+    sessionSize: _saved.sessionSize ?? 20,
+  },
   settingsOpen: false,
   q: null,
   playState: 'idle',         // idle | playing | ready | answered
   chosen: null,
   score: { c:0, t:0 },
   sessionLog: [],
-  tweaks: loadTweaks(),
+  tweaks: { theme: _saved.theme ?? 'shack', frequency: _saved.frequency ?? 550 },
   playing: false,            // mutex
   autoPlayTimer: null,
 };
 
-function loadTweaks() {
-  try { return { theme:'shack', frequency:550, ...JSON.parse(localStorage.getItem('cw_tweaks')) }; }
-  catch { return { theme:'shack', frequency:550 }; }
+function saveTweaks() {
+  localStorage.setItem('cw_tweaks', JSON.stringify({ ...state.tweaks, ...state.cfg }));
 }
-function saveTweaks() { localStorage.setItem('cw_tweaks', JSON.stringify(state.tweaks)); }
 function T() { return THEMES[state.tweaks.theme] || THEMES.shack; }
 
 // ── RENDER HELPERS ────────────────────────────────────────────────────────────
@@ -319,6 +365,9 @@ function render() {
   const root = document.getElementById('root');
   root.innerHTML = '';
   const t = T();
+  // Push theme colours to CSS variables for hover/focus rules (S4, S5)
+  document.documentElement.style.setProperty('--t-accent',   t.accent);
+  document.documentElement.style.setProperty('--t-bg-hover', t.bgCardHover);
 
   // Scanlines overlay
   if (t.scanlines) {
@@ -342,11 +391,11 @@ function render() {
 
   wrap.appendChild(renderHeader(t));
 
-  const body = el('div', { style:{
+  const body = el('main', { style:{
     flex:'1', display:'flex', flexDirection:'column',
     alignItems:'center', padding:'0 16px 32px',
   }});
-  const inner = el('div', { style:{ width:'100%', maxWidth:'560px' }});
+  const inner = el('div', { className:'inner-wrap', style:{ width:'100%', maxWidth:'560px' }});
 
   if (state.screen === 'settings') inner.appendChild(renderSettings(t));
   else if (state.screen === 'practice' && state.q) inner.appendChild(renderPractice(t));
@@ -366,7 +415,7 @@ function renderHeader(t) {
   const acc = score.t > 0 ? Math.round(score.c / score.t * 100) : null;
   const progress = sessionLog.length;
 
-  const hdr = el('div', { style:{
+  const hdr = el('header', { style:{
     background:t.bgCard, borderBottom:`1px solid ${t.border}`,
     padding:'12px 20px', display:'flex', alignItems:'center',
     justifyContent:'space-between', position:'sticky', top:0, zIndex:20,
@@ -374,7 +423,7 @@ function renderHeader(t) {
 
   const left = el('div', { style:{ display:'flex', alignItems:'center', gap:'10px' }});
   if (screen !== 'settings') {
-    const backBtn = el('button', { style:{
+    const backBtn = el('button', { 'aria-label':'Back to home', style:{
       background:'none', border:`1px solid ${t.border}`, color:t.textMuted,
       fontSize:'12px', padding:'5px 10px', borderRadius:'6px', fontWeight:'500',
     }}, '← Home');
@@ -420,7 +469,7 @@ function renderSettings(t) {
   // Title block
   const titleBlock = el('div', { style:{ textAlign:'center', padding:'40px 0 44px' }});
   titleBlock.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'16px', color:t.accent, letterSpacing:'6px', marginBottom:'12px' }}, '.-- --- .-. -.. ...'));
-  titleBlock.appendChild(el('h1', { style:{ fontSize:'32px', fontWeight:'700', letterSpacing:'-0.5px', marginBottom:'6px' }}, 'Words Practice'));
+  titleBlock.appendChild(el('h1', { className:'h1-title', style:{ fontSize:'clamp(22px, 7vw, 32px)', fontWeight:'700', letterSpacing:'-0.5px', marginBottom:'6px' }}, 'Words Practice'));
   titleBlock.appendChild(el('p',  { style:{ color:t.textMuted, fontSize:'14px' }}, 'Morse Code Trainer'));
   wrap.appendChild(titleBlock);
 
@@ -437,7 +486,7 @@ function renderSettings(t) {
       color: sel ? t.accent : t.text, fontSize:'13px',
       fontWeight: sel ? '600' : '400', textAlign:'left', transition:'all 0.12s',
     }}, o.label);
-    btn.addEventListener('click', () => { cfg.listKey = o.key; render(); });
+    btn.addEventListener('click', () => { cfg.listKey = o.key; saveTweaks(); render(); });
     grid.appendChild(btn);
   });
   sec1.appendChild(grid);
@@ -459,7 +508,7 @@ function renderSettings(t) {
     if (cfg.fwpm > cfg.wpm) cfg.fwpm = cfg.wpm;
     wpmValSpan.textContent = `${cfg.wpm} WPM`;
   });
-  wpmSlider.addEventListener('change', () => { render(); playTestR(); });
+  wpmSlider.addEventListener('change', () => { saveTweaks(); render(); playTestR(); });
   sec2.appendChild(wpmSlider);
   const wpmRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
   wpmRange.appendChild(el('span', {}, '10 WPM'));
@@ -469,7 +518,7 @@ function renderSettings(t) {
 
   // Settings sub-window button
   const settingsRow = el('div', { style:{ marginBottom:'28px' }});
-  const settingsToggleBtn = el('button', { style:{
+  const settingsToggleBtn = el('button', { className:'btn-border-hover', 'aria-haspopup':'dialog', 'aria-expanded': state.settingsOpen ? 'true' : 'false', style:{
     width:'100%', padding:'12px 16px', background:t.bgCard,
     border:`1px solid ${t.border}`, borderRadius:'10px',
     color:t.text, fontSize:'14px', fontWeight:'600',
@@ -478,8 +527,6 @@ function renderSettings(t) {
   }});
   settingsToggleBtn.appendChild(el('span', {}, '⚙ More Settings'));
   settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'12px' }}, 'Farnsworth · Session · Tone · Theme'));
-  settingsToggleBtn.addEventListener('mouseenter', () => { settingsToggleBtn.style.borderColor = t.accent; });
-  settingsToggleBtn.addEventListener('mouseleave', () => { settingsToggleBtn.style.borderColor = t.border; });
   settingsToggleBtn.addEventListener('click', () => { state.settingsOpen = true; render(); });
   settingsRow.appendChild(settingsToggleBtn);
   wrap.appendChild(settingsRow);
@@ -490,7 +537,7 @@ function renderSettings(t) {
     border:'none', borderRadius:'10px', fontSize:'15px', fontWeight:'700',
     letterSpacing:'2px',
   }}, 'START PRACTICE');
-  startBtn.addEventListener('click', startPractice);
+  startBtn.addEventListener('click', () => startPractice());
   wrap.appendChild(startBtn);
 
   // Settings modal overlay
@@ -512,8 +559,9 @@ function renderSettingsModal(t) {
     padding:'16px',
   }});
   overlay.addEventListener('click', (e) => { if (e.target === overlay) { state.settingsOpen = false; render(); } });
+  overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') { state.settingsOpen = false; render(); } });
 
-  const modal = el('div', { style:{
+  const modal = el('div', { role:'dialog', 'aria-modal':'true', 'aria-labelledby':'modal-title', style:{
     background:t.bgCard, border:`1px solid ${t.border}`,
     borderRadius:'14px', padding:'20px 20px 24px', width:'100%',
     maxWidth:'480px', maxHeight:'85vh', overflowY:'auto',
@@ -521,8 +569,8 @@ function renderSettingsModal(t) {
 
   // Modal header
   const hdr = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'24px' }});
-  hdr.appendChild(el('span', { style:{ fontSize:'16px', fontWeight:'700', color:t.text }}, 'Settings'));
-  const closeBtn = el('button', { style:{
+  hdr.appendChild(el('span', { id:'modal-title', style:{ fontSize:'16px', fontWeight:'700', color:t.text }}, 'Settings'));
+  const closeBtn = el('button', { 'aria-label':'Close settings', style:{
     background:'none', border:`1px solid ${t.border}`, color:t.textMuted,
     width:'28px', height:'28px', borderRadius:'6px', fontSize:'14px',
     display:'flex', alignItems:'center', justifyContent:'center',
@@ -534,7 +582,7 @@ function renderSettingsModal(t) {
   // Farnsworth
   const sec3 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
   const fwRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
-  fwRow.appendChild(renderToggle(t, cfg.farnsworth, () => { cfg.farnsworth = !cfg.farnsworth; render(); }));
+  fwRow.appendChild(renderToggle(t, cfg.farnsworth, () => { cfg.farnsworth = !cfg.farnsworth; saveTweaks(); render(); }));
   const fwText = el('div', {});
   fwText.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px' }}, 'Farnsworth Timing'));
   fwText.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Characters at full speed, extra space between them'));
@@ -542,17 +590,17 @@ function renderSettingsModal(t) {
   sec3.appendChild(fwRow);
   if (cfg.farnsworth) {
     const fwExtra = el('div', { style:{ marginTop:'16px', paddingTop:'16px', borderTop:`1px solid ${t.border}` }});
-    const fwLabel = el('label', { style:{ ...lblStyle, marginBottom:'8px' }});
+    const fwLabel = el('label', { htmlFor:'fwSlider', style:{ ...lblStyle, marginBottom:'8px' }});
     const fwValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, `${cfg.fwpm} WPM`);
     fwLabel.appendChild(document.createTextNode('Spacing Speed — '));
     fwLabel.appendChild(fwValSpan);
     fwExtra.appendChild(fwLabel);
-    const fwSlider = el('input', { type:'range', min:'5', max:String(cfg.wpm), step:'1', value:String(cfg.fwpm),
+    const fwSlider = el('input', { id:'fwSlider', type:'range', min:'5', max:String(cfg.wpm), step:'1', value:String(cfg.fwpm),
       style:{ accentColor:t.accent }});
     fwSlider.style.setProperty('--thumb-color', t.accent);
     fwSlider.style.setProperty('--track-color', t.border);
     fwSlider.addEventListener('input', () => { cfg.fwpm = +fwSlider.value; fwValSpan.textContent = `${cfg.fwpm} WPM`; });
-    fwSlider.addEventListener('change', () => { render(); playTestR(); });
+    fwSlider.addEventListener('change', () => { saveTweaks(); render(); playTestR(); });
     fwExtra.appendChild(fwSlider);
     const fwRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
     fwRange.appendChild(el('span', {}, '5 WPM'));
@@ -574,7 +622,7 @@ function renderSettingsModal(t) {
       color: sel ? t.accent : t.text, fontSize:'14px',
       fontWeight: sel ? '700' : '400', fontFamily:t.mono, transition:'all 0.12s',
     }}, String(n));
-    btn.addEventListener('click', () => { cfg.sessionSize = n; render(); });
+    btn.addEventListener('click', () => { cfg.sessionSize = n; saveTweaks(); render(); });
     sizeRow.appendChild(btn);
   });
   sec4.appendChild(sizeRow);
@@ -582,12 +630,12 @@ function renderSettingsModal(t) {
 
   // Tone frequency
   const sec5 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
-  const freqLabel = el('label', { style:lblStyle });
+  const freqLabel = el('label', { htmlFor:'freqSlider', style:lblStyle });
   const freqValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, `${tweaks.frequency} Hz`);
   freqLabel.appendChild(document.createTextNode('Tone Frequency — '));
   freqLabel.appendChild(freqValSpan);
   sec5.appendChild(freqLabel);
-  const freqSlider = el('input', { type:'range', min:'400', max:'800', step:'10', value:String(tweaks.frequency),
+  const freqSlider = el('input', { id:'freqSlider', type:'range', min:'400', max:'800', step:'10', value:String(tweaks.frequency),
     style:{ accentColor:t.accent }});
   freqSlider.style.setProperty('--thumb-color', t.accent);
   freqSlider.style.setProperty('--track-color', t.border);
@@ -681,14 +729,12 @@ function renderPractice(t) {
   } else if (playState === 'ready') {
     playArea.appendChild(el('div', { style:{ fontSize:'15px', color:t.textMuted, fontWeight:'500' }}, 'Select the word you heard'));
   } else if (playState === 'idle') {
-    const playBtn = el('button', { style:{
+    const playBtn = el('button', { className:'btn-icon-play', 'aria-label':'Play Morse code', style:{
       width:'88px', height:'88px', borderRadius:'50%', background:t.accent,
       border:'none', display:'flex', alignItems:'center', justifyContent:'center',
       fontSize:'26px', transition:'transform 0.15s',
     }}, '▶');
     playBtn.style.color = t.accentText;
-    playBtn.addEventListener('mouseenter', () => { playBtn.style.transform = 'scale(1.06)'; });
-    playBtn.addEventListener('mouseleave', () => { playBtn.style.transform = 'scale(1)'; });
     playBtn.addEventListener('click', doPlay);
     playArea.appendChild(playBtn);
   } else if (answered) {
@@ -698,7 +744,7 @@ function renderPractice(t) {
   card.appendChild(playArea);
 
   // Status line
-  const statusLine = el('div', { style:{ fontSize:'13px', color:t.textMuted, minHeight:'18px' }});
+  const statusLine = el('div', { 'aria-live':'polite', 'aria-atomic':'true', style:{ fontSize:'13px', color:t.textMuted, minHeight:'18px' }});
   if (playState === 'idle')    statusLine.textContent = 'Loading…';
   if (playState === 'playing') { statusLine.textContent = 'Listening…'; statusLine.style.color = t.accent; statusLine.style.fontWeight = '500'; }
   if (answered) {
@@ -721,13 +767,11 @@ function renderPractice(t) {
     }}, textToMorse(q.correct)));
 
     const btnRow = el('div', { style:{ display:'flex', gap:'10px', marginTop:'4px' }});
-    const replayBtn = el('button', { style:{
+    const replayBtn = el('button', { className:'btn-border-hover', 'aria-label':'Replay Morse code', style:{
       flex:'1', padding:'12px', background:'none',
       border:`2px solid ${t.border}`, borderRadius:'10px',
       color:t.text, fontSize:'14px', fontWeight:'600', transition:'border-color 0.15s',
     }}, '↺ Replay');
-    replayBtn.addEventListener('mouseenter', () => { replayBtn.style.borderColor = t.accent; });
-    replayBtn.addEventListener('mouseleave', () => { replayBtn.style.borderColor = t.border; });
     replayBtn.addEventListener('click', doReplay);
     const nextBtn = el('button', { style:{
       flex:'2', padding:'12px', background:t.accent, border:'none',
@@ -748,24 +792,25 @@ function renderPractice(t) {
     pointerEvents: (canAnswer || answered) ? 'auto' : 'none',
     transition:'opacity 0.3s ease',
   }});
-  q.choices.forEach(ch => {
+  q.choices.forEach((ch, idx) => {
     let bg = t.bgCard, border = t.border, color = t.text, fw = '500';
     if (answered) {
       if (ch === q.correct)    { bg = t.correctDim; border = t.correct; color = t.correct; fw = '700'; }
       else if (ch === chosen)  { bg = t.wrongDim;   border = t.wrong;   color = t.wrong;   fw = '700'; }
       else                     { color = t.textMuted; }
     }
-    const btn = el('button', { style:{
-      padding:'12px 8px', border:`2px solid ${border}`,
-      borderRadius: t.scanlines ? '2px' : '10px',
-      background:bg, color, fontSize:'13px', fontWeight:fw,
-      fontFamily:t.mono, letterSpacing:'2px', textAlign:'center', transition:'all 0.15s',
-      opacity: (!canAnswer && !answered) ? '0.4' : '1',
-      boxShadow: (answered && ch === q.correct && t.scanlines) ? `0 0 8px ${t.correct}88` : 'none',
+    const btn = el('button', {
+      className: canAnswer ? 'btn-choice-hover' : '',
+      'aria-label': `Choice ${idx + 1}: ${ch}${answered && ch === q.correct ? ' — correct' : answered && ch === chosen ? ' — your answer, incorrect' : ''}`,
+      style:{
+        padding:'12px 8px', border:`2px solid ${border}`,
+        borderRadius: t.scanlines ? '2px' : '10px',
+        background:bg, color, fontSize:'13px', fontWeight:fw,
+        fontFamily:t.mono, letterSpacing:'2px', textAlign:'center', transition:'all 0.15s',
+        opacity: (!canAnswer && !answered) ? '0.4' : '1',
+        boxShadow: (answered && ch === q.correct && t.scanlines) ? `0 0 8px ${t.correct}88` : 'none',
     }}, ch.toUpperCase());
     if (canAnswer) {
-      btn.addEventListener('mouseenter', () => { btn.style.background = t.bgCardHover; });
-      btn.addEventListener('mouseleave', () => { btn.style.background = bg; });
       btn.addEventListener('click', () => handleAnswer(ch));
     }
     grid.appendChild(btn);
@@ -794,7 +839,7 @@ function renderSummary(t) {
   const summarySessionLabel = LIST_OPTS.find(o => o.key === state.cfg.listKey)?.label ?? state.cfg.listKey;
   hero.appendChild(el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:'4px' }}, summarySessionLabel));
   hero.appendChild(el('div', { style:{ fontSize:'13px', fontWeight:'600', color:t.textMuted, letterSpacing:'2px', textTransform:'uppercase', marginBottom:'12px' }}, 'Session Complete'));
-  const scoreEl = el('div', { style:{ fontFamily:t.mono, fontSize:'56px', fontWeight:'700', color:t.accent, lineHeight:'1' }});
+  const scoreEl = el('div', { className:'score-hero', style:{ fontFamily:t.mono, fontSize:'clamp(36px, 12vw, 56px)', fontWeight:'700', color:t.accent, lineHeight:'1' }});
   scoreEl.innerHTML = `${score.c}<span style="font-size:28px;color:${t.textMuted}">/${score.t}</span>`;
   hero.appendChild(scoreEl);
   hero.appendChild(el('div', { style:{ fontSize:'22px', fontWeight:'700', color:grade.color, marginTop:'8px' }}, `${acc}% — ${grade.label}`));
@@ -817,18 +862,16 @@ function renderSummary(t) {
 
   // Action buttons
   const actions = el('div', { style:{ display:'flex', gap:'10px' }});
-  const settingsBtn = el('button', { style:{
+  const settingsBtn = el('button', { className:'btn-border-hover', style:{
     flex:'1', padding:'14px', background:'none', border:`2px solid ${t.border}`,
     borderRadius:'10px', color:t.text, fontSize:'14px', fontWeight:'600',
   }}, '← Home');
-  settingsBtn.addEventListener('mouseenter', () => { settingsBtn.style.borderColor = t.accent; });
-  settingsBtn.addEventListener('mouseleave', () => { settingsBtn.style.borderColor = t.border; });
   settingsBtn.addEventListener('click', goSettings);
   const againBtn = el('button', { style:{
     flex:'2', padding:'14px', background:t.accent, border:'none',
     borderRadius:'10px', color:t.accentText, fontSize:'14px', fontWeight:'700', letterSpacing:'1px',
   }}, 'Play Again →');
-  againBtn.addEventListener('click', startPractice);
+  againBtn.addEventListener('click', () => startPractice());
   actions.appendChild(settingsBtn);
   actions.appendChild(againBtn);
   wrap.appendChild(actions);
@@ -863,6 +906,19 @@ function renderToggle(t, on, onClick) {
 }
 
 // ── ACTIONS ───────────────────────────────────────────────────────────────────
+async function unlockAudio() {
+  // Must be called synchronously inside a user-gesture handler to satisfy iOS
+  const ctx = getCtx();
+  if (ctx.state === 'suspended') await ctx.resume();
+  // Silent blip — satisfies iOS Safari's gesture requirement
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain); gain.connect(ctx.destination);
+  gain.gain.value = 0;
+  osc.start(ctx.currentTime);
+  osc.stop(ctx.currentTime + 0.001);
+}
+
 function playTestR() {
   const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
   playMorseAudio('R', state.cfg.wpm, fwpm, state.tweaks.frequency);
@@ -875,7 +931,8 @@ function goSettings() {
   render();
 }
 
-function startPractice() {
+async function startPractice() {
+  await unlockAudio();          // iOS audio unlock — must stay within gesture handler
   clearTimeout(state.autoPlayTimer);
   state.q = makeQuestion(state.cfg.listKey);
   state.chosen = null;
@@ -893,17 +950,27 @@ async function doPlay() {
   state.playState = 'playing';
   render();
   const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
-  await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
-  state.playing = false;
+  try {
+    await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
+  } finally {
+    state.playing = false;
+  }
   if (state.playState === 'playing') { state.playState = 'ready'; render(); }
 }
 
 async function doReplay() {
   if (state.playing) return;
   state.playing = true;
+  state.playState = 'playing';
+  render();
   const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
-  await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
-  state.playing = false;
+  try {
+    await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
+  } finally {
+    state.playing = false;
+  }
+  state.playState = 'answered';
+  render();
 }
 
 function handleAnswer(choice) {
@@ -925,9 +992,16 @@ function handleAnswer(choice) {
     setTimeout(async () => {
       if (state.playing) return;
       state.playing = true;
+      state.playState = 'playing';
+      render();
       const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
-      await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
-      state.playing = false;
+      try {
+        await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
+      } finally {
+        state.playing = false;
+      }
+      state.playState = 'answered';
+      render();
     }, 400);
   }
 }
@@ -939,6 +1013,31 @@ function handleNext() {
   state.chosen = null;
   render();
   state.autoPlayTimer = setTimeout(doPlay, 150);
+}
+
+// ── KEYBOARD SHORTCUTS (S5) ───────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  // Esc closes settings modal regardless of screen
+  if (e.key === 'Escape' && state.settingsOpen) { state.settingsOpen = false; render(); return; }
+  if (state.screen !== 'practice') return;
+
+  const key = e.key;
+  if (state.playState === 'answered') {
+    if (key === 'Enter')                        { e.preventDefault(); handleNext(); return; }
+    if (key === ' ' || key.toLowerCase() === 'r') { e.preventDefault(); doReplay(); return; }
+  }
+  if (state.playState === 'idle' || state.playState === 'ready') {
+    if (key === ' ' || key.toLowerCase() === 'r') { e.preventDefault(); doPlay(); return; }
+  }
+  if (state.playState === 'ready') {
+    const n = parseInt(key);
+    if (n >= 1 && n <= state.q.choices.length) { e.preventDefault(); handleAnswer(state.q.choices[n - 1]); }
+  }
+});
+
+// ── SERVICE WORKER (S10) ─────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
