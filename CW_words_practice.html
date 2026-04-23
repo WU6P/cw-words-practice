@@ -10,8 +10,9 @@
 html, body { height: 100%; }
 body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; overflow-x: hidden; }
 
-input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; outline: none; cursor: pointer; width: 100%; }
-input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 22px; border-radius: 3px; cursor: pointer; background: var(--thumb-color, #888); }
+input[type=range] { -webkit-appearance: none; appearance: none; height: 22px; background: transparent; outline: none; cursor: pointer; width: 100%; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--track-color, #555); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 22px; border-radius: 3px; cursor: pointer; background: var(--thumb-color, #888); margin-top: -9px; }
 
 button { cursor: pointer; font-family: inherit; }
 
@@ -401,8 +402,9 @@ function renderSettings(t) {
   wpmLabel.innerHTML = `Character Speed — <span style="color:${t.accent};font-family:${t.mono}">${cfg.wpm} WPM</span>`;
   sec2.appendChild(wpmLabel);
   const wpmSlider = el('input', { type:'range', min:'10', max:'65', step:'1', value:String(cfg.wpm),
-    style:{ accentColor:t.accent, background:t.border }});
+    style:{ accentColor:t.accent }});
   wpmSlider.style.setProperty('--thumb-color', t.accent);
+  wpmSlider.style.setProperty('--track-color', t.border);
   wpmSlider.addEventListener('input', () => {
     cfg.wpm = +wpmSlider.value;
     if (cfg.fwpm > cfg.wpm) cfg.fwpm = cfg.wpm;
@@ -494,8 +496,9 @@ function renderSettingsModal(t) {
     fwLabel.innerHTML = `Spacing Speed — <span style="color:${t.accent};font-family:${t.mono}">${cfg.fwpm} WPM</span>`;
     fwExtra.appendChild(fwLabel);
     const fwSlider = el('input', { type:'range', min:'5', max:String(cfg.wpm), step:'1', value:String(cfg.fwpm),
-      style:{ accentColor:t.accent, background:t.border }});
+      style:{ accentColor:t.accent }});
     fwSlider.style.setProperty('--thumb-color', t.accent);
+    fwSlider.style.setProperty('--track-color', t.border);
     fwSlider.addEventListener('input', () => { cfg.fwpm = +fwSlider.value; render(); });
     fwExtra.appendChild(fwSlider);
     const fwRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
@@ -530,8 +533,9 @@ function renderSettingsModal(t) {
   freqLabel.innerHTML = `Tone Frequency — <span style="color:${t.accent};font-family:${t.mono}">${tweaks.frequency} Hz</span>`;
   sec5.appendChild(freqLabel);
   const freqSlider = el('input', { type:'range', min:'400', max:'800', step:'10', value:String(tweaks.frequency),
-    style:{ accentColor:t.accent, background:t.border }});
+    style:{ accentColor:t.accent }});
   freqSlider.style.setProperty('--thumb-color', t.accent);
+  freqSlider.style.setProperty('--track-color', t.border);
   freqSlider.addEventListener('input', () => {
     tweaks.frequency = +freqSlider.value; saveTweaks(); render();
   });
