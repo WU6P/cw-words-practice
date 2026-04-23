@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>CW Practice</title>
+<title>Words Practice</title>
 <style>
 /* ── RESET & BASE ─────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -164,12 +164,12 @@ const LIST_OPTS = [
   {key:'top500',       label:'Top 500 Words'},
   {key:'top501_750',   label:'Top 501–750'},
   {key:'top751_1000',  label:'Top 751–1000'},
+  {key:'top1000',      label:'Top 1000 Words'},
   {key:'top1001_1250', label:'Top 1001–1250'},
   {key:'top1251_1500', label:'Top 1251–1500'},
+  {key:'top1500',      label:'Top 1500 Words'},
   {key:'top1501_1750', label:'Top 1501–1750'},
   {key:'top1751_2000', label:'Top 1751–2000'},
-  {key:'top1000',      label:'Top 1000 Words'},
-  {key:'top1500',      label:'Top 1500 Words'},
   {key:'top2000',      label:'Top 2000 Words'},
   {key:'qso',          label:'QSO Phrases'},
 ];
@@ -228,6 +228,7 @@ const THEMES = {
 const state = {
   screen: 'settings',        // settings | practice | summary
   cfg: { listKey:'top100', wpm:20, farnsworth:false, fwpm:15, sessionSize:20 },
+  settingsOpen: false,
   q: null,
   playState: 'idle',         // idle | playing | ready | answered
   chosen: null,
@@ -370,8 +371,8 @@ function renderSettings(t) {
 
   // Title block
   const titleBlock = el('div', { style:{ textAlign:'center', padding:'40px 0 44px' }});
-  titleBlock.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'22px', color:t.accent, letterSpacing:'6px', marginBottom:'12px' }}, '·−  −·  ·−·  ·'));
-  titleBlock.appendChild(el('h1', { style:{ fontSize:'32px', fontWeight:'700', letterSpacing:'-0.5px', marginBottom:'6px' }}, 'CW Practice'));
+  titleBlock.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'22px', color:t.accent, letterSpacing:'6px', marginBottom:'12px' }}, '.-- --- .-. -.. ...'));
+  titleBlock.appendChild(el('h1', { style:{ fontSize:'32px', fontWeight:'700', letterSpacing:'-0.5px', marginBottom:'6px' }}, 'Words Practice'));
   titleBlock.appendChild(el('p',  { style:{ color:t.textMuted, fontSize:'14px' }}, 'Morse Code Trainer'));
   wrap.appendChild(titleBlock);
 
@@ -413,8 +414,72 @@ function renderSettings(t) {
   sec2.appendChild(wpmRange);
   wrap.appendChild(sec2);
 
+  // Settings sub-window button
+  const settingsRow = el('div', { style:{ marginBottom:'28px' }});
+  const settingsToggleBtn = el('button', { style:{
+    width:'100%', padding:'12px 16px', background:t.bgCard,
+    border:`1px solid ${t.border}`, borderRadius:'10px',
+    color:t.text, fontSize:'14px', fontWeight:'600',
+    display:'flex', alignItems:'center', justifyContent:'space-between',
+    transition:'border-color 0.15s',
+  }});
+  settingsToggleBtn.appendChild(el('span', {}, '⚙ More Settings'));
+  settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'12px' }}, 'Farnsworth · Session · Tone · Theme'));
+  settingsToggleBtn.addEventListener('mouseenter', () => { settingsToggleBtn.style.borderColor = t.accent; });
+  settingsToggleBtn.addEventListener('mouseleave', () => { settingsToggleBtn.style.borderColor = t.border; });
+  settingsToggleBtn.addEventListener('click', () => { state.settingsOpen = true; render(); });
+  settingsRow.appendChild(settingsToggleBtn);
+  wrap.appendChild(settingsRow);
+
+  // Start button
+  const startBtn = el('button', { style:{
+    width:'100%', padding:'16px', background:t.accent, color:t.accentText,
+    border:'none', borderRadius:'10px', fontSize:'15px', fontWeight:'700',
+    letterSpacing:'2px',
+  }}, 'START PRACTICE');
+  startBtn.addEventListener('click', startPractice);
+  wrap.appendChild(startBtn);
+
+  // Settings modal overlay
+  if (state.settingsOpen) {
+    wrap.appendChild(renderSettingsModal(t));
+  }
+
+  return wrap;
+}
+
+// ── SETTINGS MODAL ────────────────────────────────────────────────────────────
+function renderSettingsModal(t) {
+  const { cfg, tweaks } = state;
+  const lblStyle = { display:'block', fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:'10px' };
+
+  const overlay = el('div', { style:{
+    position:'fixed', inset:'0', background:'rgba(0,0,0,0.6)',
+    zIndex:100, display:'flex', alignItems:'center', justifyContent:'center',
+    padding:'16px',
+  }});
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) { state.settingsOpen = false; render(); } });
+
+  const modal = el('div', { style:{
+    background:t.bgCard, border:`1px solid ${t.border}`,
+    borderRadius:'14px', padding:'20px 20px 24px', width:'100%',
+    maxWidth:'480px', maxHeight:'85vh', overflowY:'auto',
+  }});
+
+  // Modal header
+  const hdr = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'24px' }});
+  hdr.appendChild(el('span', { style:{ fontSize:'16px', fontWeight:'700', color:t.text }}, 'Settings'));
+  const closeBtn = el('button', { style:{
+    background:'none', border:`1px solid ${t.border}`, color:t.textMuted,
+    width:'28px', height:'28px', borderRadius:'6px', fontSize:'14px',
+    display:'flex', alignItems:'center', justifyContent:'center',
+  }}, '✕');
+  closeBtn.addEventListener('click', () => { state.settingsOpen = false; render(); });
+  hdr.appendChild(closeBtn);
+  modal.appendChild(hdr);
+
   // Farnsworth
-  const sec3 = el('div', { style:{ marginBottom:'36px', background:t.bgCard, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  const sec3 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
   const fwRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
   fwRow.appendChild(renderToggle(t, cfg.farnsworth, () => { cfg.farnsworth = !cfg.farnsworth; render(); }));
   const fwText = el('div', {});
@@ -437,13 +502,13 @@ function renderSettings(t) {
     fwExtra.appendChild(fwRange);
     sec3.appendChild(fwExtra);
   }
-  wrap.appendChild(sec3);
+  modal.appendChild(sec3);
 
-  // Session size
-  const sec4 = el('div', { style:{ marginBottom:'28px' }});
+  // Questions per session
+  const sec4 = el('div', { style:{ marginBottom:'20px' }});
   sec4.appendChild(el('label', { style:lblStyle }, 'Questions per Session'));
   const sizeRow = el('div', { style:{ display:'flex', gap:'8px' }});
-  [10, 20, 30, 50].forEach(n => {
+  [10, 20, 50, 100].forEach(n => {
     const sel = cfg.sessionSize === n;
     const btn = el('button', { style:{
       flex:'1', padding:'10px 4px', border:`2px solid ${sel ? t.accent : t.border}`,
@@ -455,10 +520,10 @@ function renderSettings(t) {
     sizeRow.appendChild(btn);
   });
   sec4.appendChild(sizeRow);
-  wrap.appendChild(sec4);
+  modal.appendChild(sec4);
 
   // Tone frequency
-  const sec5 = el('div', { style:{ marginBottom:'28px', background:t.bgCard, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  const sec5 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
   const freqLabel = el('label', { style:lblStyle });
   freqLabel.innerHTML = `Tone Frequency — <span style="color:${t.accent};font-family:${t.mono}">${tweaks.frequency} Hz</span>`;
   sec5.appendChild(freqLabel);
@@ -472,10 +537,10 @@ function renderSettings(t) {
   freqRange.appendChild(el('span', {}, '400 Hz'));
   freqRange.appendChild(el('span', {}, '800 Hz'));
   sec5.appendChild(freqRange);
-  wrap.appendChild(sec5);
+  modal.appendChild(sec5);
 
   // Theme picker
-  const sec6 = el('div', { style:{ marginBottom:'36px' }});
+  const sec6 = el('div', { style:{ marginBottom:'8px' }});
   sec6.appendChild(el('label', { style:lblStyle }, 'Theme'));
   const themeRow = el('div', { style:{ display:'flex', gap:'8px' }});
   Object.values(THEMES).forEach(th => {
@@ -489,18 +554,19 @@ function renderSettings(t) {
     themeRow.appendChild(btn);
   });
   sec6.appendChild(themeRow);
-  wrap.appendChild(sec6);
+  modal.appendChild(sec6);
 
-  // Start button
-  const startBtn = el('button', { style:{
-    width:'100%', padding:'16px', background:t.accent, color:t.accentText,
-    border:'none', borderRadius:'10px', fontSize:'15px', fontWeight:'700',
-    letterSpacing:'2px',
-  }}, 'START PRACTICE');
-  startBtn.addEventListener('click', startPractice);
-  wrap.appendChild(startBtn);
+  // Done button
+  const doneBtn = el('button', { style:{
+    width:'100%', marginTop:'20px', padding:'12px', background:t.accent,
+    border:'none', borderRadius:'10px', color:t.accentText,
+    fontSize:'14px', fontWeight:'700', letterSpacing:'1px',
+  }}, 'Done');
+  doneBtn.addEventListener('click', () => { state.settingsOpen = false; render(); });
+  modal.appendChild(doneBtn);
 
-  return wrap;
+  overlay.appendChild(modal);
+  return overlay;
 }
 
 // ── PRACTICE SCREEN ───────────────────────────────────────────────────────────
