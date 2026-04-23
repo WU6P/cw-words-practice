@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CW Practice</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+body { font-family: 'Inter', sans-serif; overflow-x: hidden; }
+input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; outline: none; cursor: pointer; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; }
+@keyframes pulse { 0%,100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes scanline { 0% { top: 0; } 100% { top: 100%; } }
+.bar1 { animation: pulse 0.7s ease-in-out infinite; animation-delay: 0s; }
+.bar2 { animation: pulse 0.7s ease-in-out infinite; animation-delay: 0.1s; }
+.bar3 { animation: pulse 0.7s ease-in-out infinite; animation-delay: 0.2s; }
+.bar4 { animation: pulse 0.7s ease-in-out infinite; animation-delay: 0.3s; }
+.bar5 { animation: pulse 0.7s ease-in-out infinite; animation-delay: 0.15s; }
+.fade-in { animation: fadeIn 0.3s ease forwards; }
+.slide-up { animation: slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── MORSE TABLE ──────────────────────────────────────────────────────────────
+const MORSE = {
+  // Letters
+  A:'.-',   B:'-...', C:'-.-.', D:'-..',  E:'.',    F:'..-.',
+  G:'--.',  H:'....', I:'..',   J:'.---', K:'-.-',  L:'.-..',
+  M:'--',   N:'-.',   O:'---',  P:'.--.',  Q:'--.-', R:'.-.',
+  S:'...',  T:'-',    U:'..-',  V:'...-', W:'.--',  X:'-..-',
+  Y:'-.--', Z:'--..',
+  // Numerals
+  '0':'-----','1':'.----','2':'..---','3':'...--','4':'....-',
+  '5':'.....','6':'-....','7':'--...','8':'---..','9':'----.',
+  // Punctuation
+  '.':'.-.-.-', ',':'--..--', '?':'..--..', "'":'.----.',
+  '/':'-..-.', '(':'-.--.',  ')':'-.--.-', '&':'.-...',
+  ':':'---...', ';':'-.-.-.', '=':'-...-',  '+':'.-.-.',
+  '-':'-....-', '_':'..--.-', '"':'.-..-.', '$':'...-..-',
+  '@':'.--.-.',
+  // Prosigns (procedural signals)
+  '<':'...-.-',  // SK / VA — end of work
+  '>':'-...-.-', // BK — break
+  '!':'...-.',   // SN — understood
+  '^':'-.-.-',   // KA — starting signal
+  '~':'.-.-..',  // AL — paragraph
+};
+
+function textToMorse(text) {
+  return text.toUpperCase().split('').map(c => MORSE[c] || '').filter(Boolean).join(' ');
+}
+
+// ── AUDIO ENGINE ─────────────────────────────────────────────────────────────
+let _ctx = null;
+function getCtx() {
+  if (!_ctx || _ctx.state === 'closed') _ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_ctx.state === 'suspended') _ctx.resume();
+  return _ctx;
+}
+
+function playMorseAudio(text, charWpm, effectiveWpm, frequency) {
+  return new Promise(resolve => {
+    const ctx = getCtx();
+    const dit = 1.2 / charWpm; // seconds
+
+    // Farnsworth: calc gap unit so effective WPM matches
+    const charUnitsTime = 31 * dit;
+    const totalWordTime = 60 / effectiveWpm;
+    const gapUnit = Math.max(dit, (totalWordTime - charUnitsTime) / 19);
+
+    let t = ctx.currentTime + 0.08;
+    const words = text.toUpperCase().split(' ');
+
+    words.forEach((word, wi) => {
+      [...word].forEach((char) => {
+        const code = MORSE[char];
+        if (!code) return;
+        [...code].forEach(sym => {
+          const dur = sym === '.' ? dit : dit * 3;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = frequency;
+          osc.type = 'sine';
+          const ramp = Math.min(0.006, dur * 0.15);
+          gain.gain.setValueAtTime(0, t);
+          gain.gain.linearRampToValueAtTime(0.42, t + ramp);
+          gain.gain.setValueAtTime(0.42, t + dur - ramp);
+          gain.gain.linearRampToValueAtTime(0, t + dur);
+          osc.start(t);
+          osc.stop(t + dur + 0.01);
+          t += dur + dit; // inter-element gap
+        });
+        t += 3 * gapUnit - dit; // inter-char gap
+      });
+      if (wi < words.length - 1) t += 4 * gapUnit; // inter-word gap
+    });
+
+    setTimeout(resolve, (t - ctx.currentTime) * 1000 + 300);
+  });
+}
+
+// ── WORD LISTS ────────────────────────────────────────────────────────────────
+const W100 = 'I,a,about,all,an,and,are,as,at,be,been,but,by,call,can,come,could,day,did,do,down,each,find,first,for,from,go,had,has,have,he,her,him,his,hot,how,if,in,is,it,know,like,long,look,make,many,may,more,most,my,no,now,number,of,on,one,or,other,out,over,people,said,see,she,side,so,some,sound,than,that,the,their,them,then,there,these,they,thing,this,time,to,two,up,use,was,water,way,we,were,what,when,which,who,will,with,word,would,write,you,your'.split(',');
+const W200 = 'I,a,about,act,add,after,again,air,all,also,an,and,animal,any,are,as,ask,at,back,be,been,before,big,boy,build,but,by,call,came,can,cause,change,come,could,day,did,differ,do,does,down,each,earth,end,even,every,father,find,first,follow,for,form,from,get,give,go,good,great,had,hand,has,have,he,help,her,here,high,him,his,home,hot,house,how,if,in,is,it,just,kind,know,land,large,light,like,line,little,live,long,look,low,made,make,man,many,may,me,mean,men,more,most,mother,move,much,must,my,name,near,need,new,no,now,number,of,off,old,on,one,only,or,other,our,out,over,part,people,picture,place,play,point,port,put,read,right,round,said,same,say,see,self,sentence,set,she,show,side,small,so,some,sound,spell,such,take,tell,than,that,the,their,them,then,there,these,they,thing,think,this,three,through,time,to,too,try,turn,two,under,up,us,use,very,want,was,water,way,we,well,went,were,what,when,where,which,who,why,will,with,word,work,world,would,write,year,you,your'.split(',');
+const W300 = 'I,a,about,act,add,after,again,air,all,also,always,an,and,animal,answer,any,are,as,ask,at,back,base,be,been,before,began,begin,between,big,book,both,boy,build,but,by,call,came,can,car,care,carry,cause,change,children,city,close,color,come,could,country,cover,cross,cut,day,did,differ,do,does,dont,door,down,draw,each,earth,ease,eat,end,even,every,example,eye,face,far,father,feet,few,find,first,fish,follow,food,for,form,found,four,friend,from,get,give,go,good,got,great,group,grow,had,hand,hard,has,have,he,head,hear,help,her,here,high,him,his,home,horse,hot,house,how,idea,if,in,is,it,just,keep,kind,know,land,large,last,late,learn,left,let,letter,life,light,like,line,little,live,long,look,low,made,main,make,man,many,mark,may,me,mean,men,might,mile,more,most,mother,mountain,move,much,music,must,my,name,near,need,never,new,next,night,no,north,now,number,of,off,often,old,on,once,one,only,open,or,other,our,out,over,own,page,paper,part,people,picture,place,plant,play,point,port,press,put,rain,read,real,right,river,room,round,run,said,same,saw,say,school,sea,second,see,seem,self,sentence,set,she,should,show,side,since,small,so,some,sound,spell,stand,start,still,stop,story,study,such,sun,sure,take,tell,than,that,the,their,them,then,there,these,they,thing,think,this,those,thought,three,through,time,to,together,too,took,tree,try,turn,two,under,until,up,us,use,very,walk,want,was,watch,water,way,we,well,went,were,what,when,where,which,while,white,who,why,will,with,wood,word,work,world,would,write,year,you,your'.split(',');
+const W500 = 'I,a,able,about,above,act,add,after,again,against,age,ago,air,all,also,always,am,among,an,and,animal,answer,any,appear,are,area,as,ask,at,back,base,be,beauty,bed,been,before,began,begin,behind,best,better,between,big,bird,black,blue,boat,body,book,both,box,boy,bring,brought,build,busy,but,by,call,came,can,car,care,carry,cause,center,certain,change,check,children,city,class,clear,close,cold,color,come,common,complete,contain,correct,could,country,course,cover,cross,cry,cut,dark,day,decide,deep,develop,did,differ,direct,do,does,dog,done,dont,door,down,draw,drive,dry,during,each,early,earth,ease,east,eat,end,enough,even,ever,every,example,eye,face,fact,fall,family,far,farm,fast,father,feel,feet,few,field,figure,fill,final,find,fine,fire,first,fish,five,fly,follow,food,foot,for,force,form,found,four,free,friend,from,front,full,game,gave,get,girl,give,go,gold,good,got,govern,great,green,ground,group,grow,had,half,hand,happen,hard,has,have,he,head,hear,heard,heat,help,her,here,high,him,his,hold,home,horse,hot,hour,house,how,hundred,idea,if,in,inch,interest,is,island,it,just,keep,kind,king,knew,know,land,language,large,last,late,laugh,lay,lead,learn,leave,left,less,let,letter,life,light,like,line,list,listen,little,live,long,look,lot,love,low,machine,made,main,make,man,many,map,mark,may,me,mean,measure,men,might,mile,mind,minute,miss,money,moon,more,morning,most,mother,mountain,move,much,music,must,my,name,near,need,never,new,next,night,no,north,note,nothing,notice,noun,now,number,numeral,object,of,off,often,oh,old,on,once,one,only,open,or,order,other,our,out,over,own,page,paper,part,pass,pattern,people,perhaps,person,picture,piece,place,plain,plan,plane,plant,play,point,port,pose,possible,pound,power,press,problem,produce,product,pull,put,question,quick,rain,ran,reach,read,ready,real,record,red,remember,rest,right,river,road,rock,room,round,rule,run,said,same,saw,say,school,science,sea,second,see,seem,self,sentence,serve,set,several,shape,she,ship,short,should,show,side,simple,since,sing,sit,six,size,sleep,slow,small,snow,so,some,song,soon,sound,south,special,spell,stand,star,start,state,stay,step,still,stood,stop,story,street,strong,study,such,sun,sure,surface,table,tail,take,talk,teach,tell,ten,test,than,that,the,their,them,then,there,these,they,thing,think,this,those,though,thought,thousand,three,through,time,to,together,told,too,took,top,toward,town,travel,tree,true,try,turn,two,under,unit,until,up,us,use,usual,very,voice,vowel,wait,walk,want,war,warm,was,watch,water,way,we,week,weight,well,went,were,west,what,wheel,when,where,which,while,white,who,whole,why,will,wind,with,wonder,wood,word,work,world,would,write,year,yes,yet,you,young,your'.split(',');
+const W501_750 = 'ability,access,according,across,action,activity,actually,additional,allow,almost,along,already,alternative,although,amount,analysis,another,army,around,art,available,away,bad,basic,basis,because,become,beginning,being,below,board,boss,boyfriend,building,business,buy,camera,card,case,cash,chance,child,choose,coast,commercial,community,company,computer,consider,control,cook,create,current,dance,data,deal,definition,demand,determine,development,different,difficult,direction,directly,easy,economics,economy,either,else,emotional,environment,equipment,especially,everyone,everything,exam,excuse,exercise,experience,fat,film,focus,following,freedom,fun,future,garden,general,generally,government,guard,guide,health,healthy,hi,historical,history,however,human,image,important,improve,include,including,increase,individual,industry,information,instance,instead,international,internet,into,investment,involved,its,itself,job,key,knowledge,known,later,law,least,level,library,likely,literature,local,lower,maintain,major,management,market,matter,meat,media,mental,method,model,month,mouse,movie,national,natural,nature,necessary,not,offer,oil,organization,oven,particular,past,pay,period,personal,physical,physics,player,policy,political,popular,positive,potential,practice,present,price,primary,probably,process,professional,program,provide,public,purchase,quality,quickly,quite,radio,range,rate,rather,reading,really,reason,research,result,risk,safety,scared,search,section,security,sense,series,service,similar,simply,single,site,society,software,soil,someone,something,sometimes,source,space,specific,spend,sport,stock,store,strategy,subject,supply,system,tax,technology,television,temperature,term,thank,thanks,theory,therefore,today,tonight,trade,training,type,understand,understanding,united,used,useful,usually,value,variety,various,video,weather,web,whether,within,without,working,worth,yourself'.split(',');
+const W751_1000 = 'account,achieve,active,actual,addition,address,advantage,advertising,affect,alone,anyone,anything,apartment,approach,appropriate,article,attempt,attention,audience,average,avoid,balance,ball,bank,beautiful,believe,benefit,beyond,birth,bit,born,bottom,break,bright,broad,bus,capital,career,category,certainly,challenge,charge,chemistry,chicken,choice,cigarette,classic,combination,comfortable,communication,competition,complex,concern,concerned,condition,constantly,contact,content,context,continue,cost,craft,creative,credit,culture,currently,cute,cycle,date,decision,department,describe,design,despite,difference,discipline,discuss,disease,disk,distribution,driver,due,easily,education,effect,effective,egg,electrical,energy,enjoy,entertainment,entire,event,eventually,exactly,excellent,exchange,exist,expensive,extra,extremely,failure,familiar,feature,federal,finally,financial,fishing,fit,flat,flight,frame,gain,gift,glad,goal,growth,happy,helpful,hope,ice,identify,impact,income,independent,inside,intelligent,interested,interesting,introduction,issue,item,junior,length,lift,limited,link,location,magazine,marketing,marriage,material,math,maybe,meaning,medical,medicine,medium,metal,middle,mix,moment,nation,negative,network,news,newspaper,nice,normally,occur,office,official,opportunity,original,outside,overall,paint,painting,perfect,perform,performance,philosophy,pick,politics,poor,population,position,post,pot,pregnant,prepare,president,pressure,pretty,private,profit,proper,property,protect,purpose,realize,receive,recent,refer,regular,related,remove,rent,report,require,reserve,responsible,return,review,rise,role,safe,salt,scale,screen,separate,share,shopping,sign,significant,solve,soup,speed,square,standard,straight,stress,structure,student,style,success,successful,support,task,teacher,tend,themselves,throughout,thus,tool,traditional,truth,unique,university,unless,upset,user,view,visit,visual,western,wide,willing,writing,wrong'.split(',');
+const W1001_1250 = 'accept,accurate,ad,advanced,advice,afford,agency,agree,ahead,appearance,application,apply,association,author,aware,baby,background,blood,bowl,brain,bridge,brown,brush,budget,button,campaign,cancel,capable,carefully,cell,character,cheap,chemical,clean,clearly,click,club,collection,college,communicate,competitive,complain,completely,complicated,concept,conflict,connection,cool,county,couple,critical,criticism,customer,daily,damage,dangerous,dealer,death,debate,debt,depend,depression,depth,description,desire,die,discount,discover,discussion,dish,display,distance,dump,edge,educational,effort,electronic,ensure,environmental,estate,evidence,exit,expect,experienced,explain,explore,express,expression,extreme,fail,fairly,fan,feeling,file,finding,finish,fixed,flow,forget,foundation,frequently,fresh,fully,function,gas,generate,global,grandmother,handle,heart,heavy,hello,highly,hit,housing,huge,imagination,immediate,immediately,importance,impossible,inflation,influence,insurance,invest,involve,lack,lake,leading,legal,lesson,living,lock,lose,maximum,meet,member,message,mood,mostly,myself,naturally,nearly,normal,novel,objective,obtain,occasionally,officer,opinion,option,organized,otherwise,pack,pair,park,passion,payment,percentage,perspective,phase,phone,photo,plastic,plenty,plus,prefer,prevent,primarily,properly,push,quarter,rare,reality,recently,recipe,recommend,reduce,reference,register,relationship,relatively,release,relevant,rely,remain,represent,resource,responsibility,rich,ride,save,savings,scene,secret,secure,select,sell,serious,seriously,setting,shoot,shot,situation,skill,skin,sky,slowly,sort,speak,specifically,spot,spread,spring,staff,stage,statement,stick,studio,sugar,summer,target,taste,teaching,technical,text,theme,thin,title,topic,touch,tough,towards,track,trouble,typical,ultimately,upon,valuable,vary,wall,wealth,whatever,whenever,whose,widely,wing,woman,wonderful,worry'.split(',');
+const W1251_1500 = 'abuse,actor,administration,advance,afraid,afternoon,agreement,alcohol,amazing,angle,annual,anticipate,anywhere,appeal,appreciate,argument,aspect,assume,attack,attitude,basically,bat,beach,beat,belt,bench,blank,borrow,breakfast,burn,cancer,catch,chain,chart,claim,classroom,closed,closely,commission,compare,complaint,confidence,connect,consideration,consist,consistent,constant,contract,contribute,copy,count,cream,crew,cultural,currency,daughter,dead,degree,delivery,deposit,detail,detailed,device,difficulty,director,doctor,dot,double,doubt,drag,drama,dramatic,dream,drink,drop,duty,earn,effectively,efficient,election,emphasis,emphasize,employment,enable,encourage,engage,engine,engineering,enhance,enter,entry,equal,equally,essay,essentially,everybody,exact,existing,expand,factor,fair,famous,fee,finance,firm,fix,foreign,formal,forward,frequent,fruit,gear,gently,glass,greatly,guess,highway,hire,hopefully,hungry,ideal,imagine,indicate,initially,interaction,internal,join,joint,juice,jump,kick,kill,kitchen,limit,literally,log,loss,lost,luck,mainly,manage,master,membership,memory,merely,milk,minimum,minor,mixed,mixture,mouth,muscle,necessarily,net,nor,numerous,operate,opposite,originally,party,path,patience,peace,personality,personally,pipe,pitch,please,possession,possibly,powerful,practical,preference,preparation,previous,principle,print,progress,project,prove,psychological,psychology,pure,raise,rarely,raw,react,recognize,recommendation,reflect,region,regularly,relative,relax,remote,replace,republic,response,roughly,sale,season,seat,secretary,selection,send,sensitive,severe,signal,significantly,similarly,slightly,smooth,soft,solid,solution,somewhat,somewhere,spirit,stable,status,steak,storage,storm,strength,stuff,substance,sufficient,suggest,suitable,survive,tap,team,ticket,total,tour,tradition,traffic,treat,trick,trip,union,unusual,vast,vegetable,version,virus,wave,wear,weird,win'.split(',');
+const W1501_1750 = 'absolutely,acceptable,acquire,adapt,adjust,administrative,adult,agent,aggressive,airline,altogether,anxiety,anyway,apart,argue,arise,assure,atmosphere,attract,awareness,bag,band,bath,battle,bill,block,bone,boring,bother,bread,brief,cake,calendar,candidate,cap,careful,charity,climate,coat,code,collect,combine,command,comparison,confusion,construction,contest,corner,court,cousin,crazy,cup,curve,designer,dig,dimension,disaster,distinct,distribute,district,divide,dress,eastern,editor,efficiency,elevator,elsewhere,emergency,emotion,employee,employer,equivalent,escape,evening,everywhere,examine,except,excitement,expose,extension,extent,false,feed,feedback,fight,finger,football,forever,gap,garage,gather,grade,guarantee,guest,guidance,guitar,hang,hate,height,himself,hole,holiday,homework,hook,horror,host,hotel,hunt,husband,implement,impress,initial,install,intend,interview,introduce,kid,latter,layer,leader,leadership,lecture,lie,loan,logical,mall,manager,manner,march,married,match,meeting,mention,mission,mistake,mom,nail,narrow,nearby,neither,nobody,noise,none,nose,obvious,obviously,occasion,operation,ourselves,outcome,overcome,owe,owner,package,pain,parking,participate,partner,patient,pause,perfectly,permission,phrase,physically,pleasure,presentation,prior,priority,profile,promotion,proof,protection,proud,race,reasonable,recording,reflection,refrigerator,relate,relief,repair,repeat,resolution,respect,revenue,rice,rough,routine,sad,sample,sand,schedule,score,scratch,screw,seek,session,settle,sex,sharp,shop,shoulder,shower,sick,singer,slide,smell,smoke,somehow,spiritual,stomach,strange,strict,strike,string,strip,succeed,successfully,suddenly,suffer,suggestion,suit,surprised,survey,swimming,telephone,tennis,tension,thick,throw,tie,tip,tone,totally,tourist,towel,transportation,truly,twice,unhappy,vacation,variation,virtually,whereas,wild,window,wine,winter,wise,wish'.split(',');
+const W1751_2000 = 'abroad,accident,airport,alive,angry,appointment,arm,arrival,aside,assist,associate,assumption,automatic,automatically,bake,bar,baseball,basket,bell,bet,bike,blame,blow,bonus,border,branch,breast,brick,brother,buddy,bunch,cabinet,calculate,chair,chapter,childhood,chip,church,civil,closet,clothes,clue,coach,coffee,collar,comment,committee,compete,concerning,conference,confirm,consult,conversation,convert,crash,database,deeply,definitely,deliberately,deliver,dependent,desperate,devil,diet,dinner,document,draft,drawing,dust,employ,encouraging,enthusiasm,error,exciting,expert,explanation,extend,external,farmer,fear,floor,fold,former,forth,friendly,fuel,funny,gate,glove,god,golf,grab,gross,habit,hair,hall,hardly,hearing,herself,hide,historian,hospital,hurt,ill,illegal,incorporate,initiative,injury,instruction,investigate,iron,jacket,judge,judgment,justify,knife,lab,landscape,league,loud,lucky,lunch,mail,maintenance,manufacturer,massive,meal,measurement,mess,mobile,mode,monitor,mortgage,mud,nasty,native,negotiate,nurse,opening,orange,ordinary,organize,ought,pace,panic,parent,peak,perception,permit,pie,pin,poem,poetry,police,pool,possess,possibility,presence,procedure,proposal,provided,qualify,queen,quote,ratio,readily,realistic,reception,recover,relation,relieve,replacement,request,resolve,respond,restaurant,retain,retire,revolution,reward,rid,roll,row,royal,salary,sandwich,satisfaction,sector,senior,shame,shelter,shock,shoe,shut,signature,significance,silver,sink,slip,somebody,son,sorry,southern,spare,speech,spite,split,spray,strain,struggle,super,surprise,suspect,sweet,swim,swing,tackle,tank,tea,terribly,tight,till,tooth,train,transition,trust,twist,ugly,unfair,unfortunately,unlikely,upper,upstairs,vehicle,village,visible,volume,warning,wash,waste,weekend,weigh,welcome,wife,winner,worker,writer,yard,yellow,yours'.split(',');
+
+const WORDS = {
+  top100: W100,
+  top200: W200,
+  top300: W300,
+  top500: W500,
+  top501_750: W501_750,
+  top751_1000: W751_1000,
+  top1001_1250: W1001_1250,
+  top1251_1500: W1251_1500,
+  top1501_1750: W1501_1750,
+  top1751_2000: W1751_2000,
+  top1000: [...new Set([...W500, ...W501_750, ...W751_1000])],
+  top1500: [...new Set([...W500, ...W501_750, ...W751_1000, ...W1001_1250, ...W1251_1500])],
+  top2000: [...new Set([...W500, ...W501_750, ...W751_1000, ...W1001_1250, ...W1251_1500, ...W1501_1750, ...W1751_2000])],
+  qso: 'CQ DE RST QTH QRM QRN QSB QRZ 73 88 PSE TU DX OM YL ANT RIG PWR AGN NR BK AR SK CW SSB FB HW QSL QRO QRP QRX QSY GE GA GM ES WX BCNU CUL HI UR NW LOG TEST'.split(' '),
+  letters: 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z'.split(' '),
+  numbers: '0 1 2 3 4 5 6 7 8 9'.split(' '),
+  mixed: 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z 0 1 2 3 4 5 6 7 8 9'.split(' '),
+};
+
+function genCallsign() {
+  const pre = ['W','K','N','AA','AB','WA','KA','VE3','VE7','G','DL','JA','F6','I2','SP','UA'][Math.floor(Math.random()*16)];
+  const n = Math.floor(Math.random()*10);
+  const L = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const len = 2 + Math.floor(Math.random()*2);
+  const suf = Array.from({length:len},()=>L[Math.floor(Math.random()*26)]).join('');
+  return pre + n + suf;
+}
+
+function getWordPool(key) {
+  if (key === 'callsigns') return Array.from({length:80}, genCallsign);
+  return WORDS[key] || WORDS.top100;
+}
+
+function makeQuestion(listKey) {
+  const pool = getWordPool(listKey);
+  const correct = pool[Math.floor(Math.random() * pool.length)];
+  let others = pool.filter(w => w !== correct);
+  const distractors = [];
+  while (distractors.length < 5 && others.length > 0) {
+    const i = Math.floor(Math.random() * others.length);
+    distractors.push(others[i]);
+    others.splice(i, 1);
+  }
+  while (distractors.length < 5) distractors.push(pool[Math.floor(Math.random()*pool.length)]);
+  const choices = [correct, ...distractors].sort(() => Math.random() - 0.5);
+  return { correct, choices };
+}
+
+// ── THEMES ────────────────────────────────────────────────────────────────────
+const THEMES = {
+  shack: {
+    id: 'shack', label: 'Shack',
+    bg: '#120d00', bgCard: '#1c1400', bgCardHover: '#251c00',
+    text: '#eedfa0', textMuted: '#7a5a20', accent: '#d4900a',
+    accentDim: '#d4900a22', accentText: '#120d00',
+    correct: '#7ab840', correctDim: '#7ab84022',
+    wrong: '#c84828', wrongDim: '#c8482822',
+    border: '#5a3e0a', mono: "'Courier Prime', 'Courier New', monospace",
+    scanlines: true,
+  },
+  clean: {
+    id: 'clean', label: 'Clean',
+    bg: '#f5f3ee', bgCard: '#ffffff', bgCardHover: '#eeebe4',
+    text: '#1c1917', textMuted: '#78716c', accent: '#1d4ed8',
+    accentDim: '#1d4ed810', accentText: '#ffffff',
+    correct: '#16a34a', correctDim: '#16a34a18',
+    wrong: '#dc2626', wrongDim: '#dc262618',
+    border: '#e2ddd6', mono: "'Space Mono', monospace",
+    scanlines: false,
+  },
+  terminal: {
+    id: 'terminal', label: 'Terminal',
+    bg: '#020802', bgCard: '#041004', bgCardHover: '#072010',
+    text: '#00e040', textMuted: '#006620', accent: '#00ff55',
+    accentDim: '#00ff5518', accentText: '#020802',
+    correct: '#00ff55', correctDim: '#00ff5520',
+    wrong: '#ff4040', wrongDim: '#ff404020',
+    border: '#003310', mono: "'Space Mono', monospace",
+    scanlines: true,
+  },
+};
+
+// ── LIST OPTIONS ──────────────────────────────────────────────────────────────
+const LIST_OPTS = [
+  {key:'top100',      label:'Top 100 Words'},
+  {key:'top200',      label:'Top 200 Words'},
+  {key:'top300',      label:'Top 300 Words'},
+  {key:'top500',      label:'Top 500 Words'},
+  {key:'top501_750',  label:'Top 501–750'},
+  {key:'top751_1000', label:'Top 751–1000'},
+  {key:'top1001_1250',label:'Top 1001–1250'},
+  {key:'top1251_1500',label:'Top 1251–1500'},
+  {key:'top1501_1750',label:'Top 1501–1750'},
+  {key:'top1751_2000',label:'Top 1751–2000'},
+  {key:'top1000',     label:'Top 1000 Words'},
+  {key:'top1500',     label:'Top 1500 Words'},
+  {key:'top2000',     label:'Top 2000 Words'},
+  {key:'qso',        label:'QSO Phrases'},
+  {key:'callsigns',  label:'Callsigns'},
+  {key:'letters',    label:'Letters A–Z'},
+  {key:'numbers',    label:'Numbers 0–9'},
+  {key:'mixed',      label:'Mixed (A–Z + 0–9)'},
+];
+
+// ── TWEAK DEFAULTS ────────────────────────────────────────────────────────────
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "shack",
+  "frequency": 550
+}/*EDITMODE-END*/;
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+function App() {
+  const [screen, setScreen] = useState('settings');
+  const [cfg, setCfg] = useState({
+    listKey: 'top100', wpm: 20, farnsworth: false, fwpm: 15, sessionSize: 20,
+  });
+  const [q, setQ] = useState(null);
+  const [playState, setPlayState] = useState('idle'); // idle|playing|ready|answered
+  const [chosen, setChosen] = useState(null);
+  const [score, setScore] = useState({c:0, t:0});
+  const [sessionLog, setSessionLog] = useState([]); // [{word, correct}]
+  const [tweaks, setTweaks] = useState(() => {
+    try { return {...TWEAK_DEFAULTS, ...JSON.parse(localStorage.getItem('cw_tweaks'))}; } catch { return TWEAK_DEFAULTS; }
+  });
+  const [showTweaks, setShowTweaks] = useState(false);
+  const playRef = useRef(false);
+
+  const T = THEMES[tweaks.theme] || THEMES.shack;
+
+  useEffect(() => {
+    const h = e => {
+      if (e.data?.type === '__activate_edit_mode') setShowTweaks(true);
+      if (e.data?.type === '__deactivate_edit_mode') setShowTweaks(false);
+    };
+    window.addEventListener('message', h);
+    window.parent.postMessage({type:'__edit_mode_available'}, '*');
+    return () => window.removeEventListener('message', h);
+  }, []);
+
+  // Auto-play whenever a new question is loaded on the practice screen
+  const autoPlayRef = useRef(null);
+  useEffect(() => {
+    if (screen === 'practice' && q) {
+      clearTimeout(autoPlayRef.current);
+      autoPlayRef.current = setTimeout(() => doPlay(), 150);
+    }
+    return () => clearTimeout(autoPlayRef.current);
+  }, [q, screen]); // eslint-disable-line
+
+  const saveScore = s => setScore(s);
+  const startPractice = () => {
+    const question = makeQuestion(cfg.listKey);
+    setQ(question);
+    setChosen(null);
+    setScreen('practice');
+    setPlayState('idle');
+    setScore({c:0, t:0});
+    setSessionLog([]);
+  };
+
+  const setTweak = (k,v) => {
+    const n = {...tweaks, [k]:v};
+    setTweaks(n);
+    localStorage.setItem('cw_tweaks', JSON.stringify(n));
+    window.parent.postMessage({type:'__edit_mode_set_keys', edits:{[k]:v}}, '*');
+  };
+
+  const doPlay = useCallback(async () => {
+    if (playRef.current) return;
+    playRef.current = true;
+    setPlayState('playing');
+    const fwpm = cfg.farnsworth ? Math.min(cfg.fwpm, cfg.wpm) : cfg.wpm;
+    await playMorseAudio(q.correct, cfg.wpm, fwpm, tweaks.frequency);
+    playRef.current = false;
+    setPlayState(prev => prev === 'playing' ? 'ready' : prev);
+  }, [q, cfg, tweaks.frequency]);
+
+  const handleNext = useCallback(() => {
+    const question = makeQuestion(cfg.listKey);
+    setQ(question);
+    setPlayState('idle');
+    setChosen(null);
+  }, [cfg.listKey]);
+
+  const handleAnswer = useCallback(choice => {
+    if (playState !== 'ready') return;
+    setChosen(choice);
+    setPlayState('answered');
+    const ok = choice === q.correct;
+    const newScore = {c: score.c + (ok?1:0), t: score.t + 1};
+    const newLog = [...sessionLog, {word: q.correct, correct: ok}];
+    setScore(newScore);
+    setSessionLog(newLog);
+
+    const sessionDone = newLog.length >= cfg.sessionSize;
+
+    if (ok) {
+      setTimeout(() => {
+        if (sessionDone) { setScreen('summary'); return; }
+        const question = makeQuestion(cfg.listKey);
+        setQ(question); setPlayState('idle'); setChosen(null);
+      }, 1100);
+    } else {
+      // Replay wrong answer
+      setTimeout(async () => {
+        if (playRef.current) return;
+        playRef.current = true;
+        const fwpm = cfg.farnsworth ? Math.min(cfg.fwpm, cfg.wpm) : cfg.wpm;
+        await playMorseAudio(q.correct, cfg.wpm, fwpm, tweaks.frequency);
+        playRef.current = false;
+      }, 400);
+    }
+  }, [playState, q, cfg, score, sessionLog, tweaks.frequency]);
+
+  const handleReplay = useCallback(async () => {
+    if (playRef.current) return;
+    playRef.current = true;
+    const fwpm = cfg.farnsworth ? Math.min(cfg.fwpm, cfg.wpm) : cfg.wpm;
+    await playMorseAudio(q.correct, cfg.wpm, fwpm, tweaks.frequency);
+    playRef.current = false;
+  }, [q, cfg, tweaks.frequency]);
+
+  return (
+    <div style={{minHeight:'100vh', background:T.bg, color:T.text, fontFamily:"'Inter',sans-serif", display:'flex', flexDirection:'column', position:'relative'}}>
+      {T.scanlines && <>
+        <div style={{position:'fixed', inset:0, backgroundImage:`repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.13) 3px,rgba(0,0,0,0.13) 4px)`, pointerEvents:'none', zIndex:50}} />
+        <div style={{position:'fixed', inset:0, backgroundImage:`radial-gradient(${T.border}40 1px, transparent 1px)`, backgroundSize:'18px 18px', pointerEvents:'none', zIndex:1}} />
+      </>}
+      <Header T={T} score={score} sessionLog={sessionLog} sessionSize={cfg.sessionSize} onReset={startPractice} onBack={screen!=='settings'?()=>setScreen('settings'):null} />
+      <div style={{flex:1, display:'flex', flexDirection:'column', alignItems:'center', padding:'0 16px 32px'}}>
+        <div style={{width:'100%', maxWidth:560}}>
+          {screen === 'settings' && <SettingsScreen T={T} cfg={cfg} setCfg={setCfg} onStart={startPractice} />}
+          {screen === 'practice' && q && (
+            <PracticeScreen T={T} q={q} playState={playState} chosen={chosen}
+              onPlay={doPlay} onAnswer={handleAnswer} onNext={handleNext} onReplay={handleReplay} wpm={cfg.wpm} />
+          )}
+          {screen === 'summary' && (
+            <SummaryScreen T={T} sessionLog={sessionLog} score={score}
+              onPlayAgain={startPractice} onSettings={()=>setScreen('settings')} />
+          )}
+        </div>
+      </div>
+      {showTweaks && <TweaksPanel T={T} tweaks={tweaks} setTweak={setTweak} />}
+    </div>
+  );
+}
+
+// ── HEADER ────────────────────────────────────────────────────────────────────
+function Header({ T, score, sessionLog, sessionSize, onReset, onBack }) {
+  const acc = score.t > 0 ? Math.round(score.c / score.t * 100) : null;
+  const progress = sessionLog ? sessionLog.length : 0;
+  return (
+    <div style={{background:T.bgCard, borderBottom:`1px solid ${T.border}`, padding:'12px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:20}}>
+      <div style={{display:'flex', alignItems:'center', gap:10}}>
+        {onBack && (
+          <button onClick={onBack} style={{background:'none',border:`1px solid ${T.border}`,cursor:'pointer',color:T.textMuted,fontSize:12,padding:'5px 10px',borderRadius:6,fontFamily:"'Inter',sans-serif",fontWeight:500,letterSpacing:0.5}}>← Settings</button>
+        )}
+        <span style={{fontFamily:T.mono, fontSize:13, fontWeight:700, color:T.accent, letterSpacing:3}}>CW</span>
+        <span style={{fontFamily:T.mono, fontSize:11, color:T.textMuted, letterSpacing:1}}>PRACTICE</span>
+      </div>
+      <div style={{display:'flex', alignItems:'center', gap:12}}>
+        {sessionLog && sessionSize && progress > 0 && (
+          <div style={{display:'flex', alignItems:'center', gap:6}}>
+            <div style={{width:64, height:3, borderRadius:1, background:T.border, overflow:'visible', position:'relative'}}>
+              <div style={{height:'100%', width:`${(progress/sessionSize)*100}%`, background:T.accent, borderRadius:1, transition:'width 0.3s', boxShadow:`0 0 6px ${T.accent}cc, 0 0 12px ${T.accent}55`}} />
+            </div>
+            <span style={{fontFamily:T.mono, fontSize:11, color:T.textMuted}}>{progress}/{sessionSize}</span>
+          </div>
+        )}
+        {score.t > 0 && (
+          <div style={{textAlign:'right'}}>
+            <div style={{fontFamily:T.mono, fontSize:16, fontWeight:700, color:T.text}}>{score.c}/{score.t}</div>
+            <div style={{fontSize:11, color: acc >= 80 ? T.correct : acc >= 60 ? T.accent : T.wrong}}>{acc}%</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── SETTINGS ──────────────────────────────────────────────────────────────────
+function SettingsScreen({ T, cfg, setCfg, onStart }) {
+  const set = (k,v) => setCfg(s => ({...s,[k]:v}));
+  const lbl = {display:'block', fontSize:11, fontWeight:600, color:T.textMuted, letterSpacing:1.5, textTransform:'uppercase', marginBottom:10};
+  return (
+    <div className="fade-in">
+      <div style={{textAlign:'center', padding:'40px 0 44px'}}>
+        <div style={{fontFamily:T.mono, fontSize:22, color:T.accent, letterSpacing:6, marginBottom:12}}>
+          ·−  −·  ·−·  ·
+        </div>
+        <h1 style={{fontSize:32, fontWeight:700, letterSpacing:-0.5, marginBottom:6}}>CW Practice</h1>
+        <p style={{color:T.textMuted, fontSize:14}}>Morse Code Trainer</p>
+      </div>
+
+      {/* Word List */}
+      <div style={{marginBottom:28}}>
+        <label style={lbl}>Word List</label>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
+          {LIST_OPTS.map(o => {
+            const sel = cfg.listKey === o.key;
+            return (
+              <button key={o.key} onClick={()=>set('listKey',o.key)} style={{
+                padding:'10px 12px', border:`2px solid ${sel?T.accent:T.border}`,
+                borderRadius:8, background: sel ? T.accentDim : T.bgCard,
+                color: sel ? T.accent : T.text, cursor:'pointer',
+                fontSize:13, fontWeight: sel?600:400, textAlign:'left',
+                transition:'all 0.12s',
+              }}>{o.label}</button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* WPM */}
+      <div style={{marginBottom:28}}>
+        <label style={lbl}>
+          Character Speed — <span style={{color:T.accent, fontFamily:T.mono}}>{cfg.wpm} WPM</span>
+        </label>
+        <input type="range" min={10} max={65} step={1} value={cfg.wpm}
+          onChange={e=>set('wpm',+e.target.value)}
+          style={{width:'100%', accentColor:T.accent, background:T.border}} />
+        <div style={{display:'flex', justifyContent:'space-between', fontSize:11, color:T.textMuted, marginTop:5}}>
+          <span>10 WPM</span><span>65 WPM</span>
+        </div>
+      </div>
+
+      {/* Farnsworth */}
+      <div style={{marginBottom:36, background:T.bgCard, border:`1px solid ${T.border}`, borderRadius:10, padding:'14px 16px'}}>
+        <div style={{display:'flex', alignItems:'center', gap:12}}>
+          <Toggle on={cfg.farnsworth} onToggle={()=>set('farnsworth',!cfg.farnsworth)} T={T} />
+          <div>
+            <div style={{fontWeight:600, fontSize:14}}>Farnsworth Timing</div>
+            <div style={{fontSize:12, color:T.textMuted, marginTop:2}}>Characters at full speed, extra space between them</div>
+          </div>
+        </div>
+        {cfg.farnsworth && (
+          <div style={{marginTop:16, paddingTop:16, borderTop:`1px solid ${T.border}`}}>
+            <label style={{...lbl, marginBottom:8}}>
+              Spacing Speed — <span style={{color:T.accent, fontFamily:T.mono}}>{cfg.fwpm} WPM</span>
+            </label>
+            <input type="range" min={5} max={cfg.wpm} step={1} value={cfg.fwpm}
+              onChange={e=>set('fwpm',+e.target.value)}
+              style={{width:'100%', accentColor:T.accent, background:T.border}} />
+            <div style={{display:'flex', justifyContent:'space-between', fontSize:11, color:T.textMuted, marginTop:5}}>
+              <span>5 WPM</span><span>{cfg.wpm} WPM</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Session size */}
+      <div style={{marginBottom:28}}>
+        <label style={lbl}>Questions per Session</label>
+        <div style={{display:'flex', gap:8}}>
+          {[10, 20, 30, 50].map(n => {
+            const sel = cfg.sessionSize === n;
+            return (
+              <button key={n} onClick={()=>set('sessionSize',n)} style={{
+                flex:1, padding:'10px 4px', border:`2px solid ${sel?T.accent:T.border}`,
+                borderRadius:8, background: sel ? T.accentDim : T.bgCard,
+                color: sel ? T.accent : T.text, cursor:'pointer',
+                fontSize:14, fontWeight: sel?700:400, fontFamily:T.mono,
+                transition:'all 0.12s',
+              }}>{n}</button>
+            );
+          })}
+        </div>
+      </div>
+
+      <button onClick={onStart} style={{
+        width:'100%', padding:'16px', background:T.accent, color:T.accentText,
+        border:'none', borderRadius:10, fontSize:15, fontWeight:700, cursor:'pointer',
+        letterSpacing:2, fontFamily:"'Inter',sans-serif",
+      }}>
+        START PRACTICE
+      </button>
+    </div>
+  );
+}
+
+// ── SUMMARY SCREEN ────────────────────────────────────────────────────────────
+function SummaryScreen({ T, sessionLog, score, onPlayAgain, onSettings }) {
+  const acc = score.t > 0 ? Math.round(score.c / score.t * 100) : 0;
+  const correct = sessionLog.filter(e => e.correct);
+  const wrong = sessionLog.filter(e => !e.correct);
+  // dedupe wrong words
+  const wrongWords = [...new Set(wrong.map(e => e.word))];
+  const correctWords = [...new Set(correct.map(e => e.word))];
+
+  const grade = acc >= 90 ? {label:'Excellent', color:T.correct} : acc >= 70 ? {label:'Good', color:T.accent} : {label:'Keep Practicing', color:T.wrong};
+
+  return (
+    <div className="fade-in" style={{paddingTop:32}}>
+      {/* Score hero */}
+      <div style={{background:T.bgCard, border:`1px solid ${T.border}`, borderRadius:16, padding:'32px 24px', textAlign:'center', marginBottom:20}}>
+        <div style={{fontSize:13, fontWeight:600, color:T.textMuted, letterSpacing:2, textTransform:'uppercase', marginBottom:12}}>Session Complete</div>
+        <div style={{fontFamily:T.mono, fontSize:56, fontWeight:700, color:T.accent, lineHeight:1}}>{score.c}<span style={{fontSize:28, color:T.textMuted}}>/{score.t}</span></div>
+        <div style={{fontSize:22, fontWeight:700, color:grade.color, marginTop:8}}>{acc}% — {grade.label}</div>
+      </div>
+
+      {/* Two column word list */}
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20}}>
+        {/* Correct */}
+        <div style={{background:T.bgCard, border:`1px solid ${T.border}`, borderRadius:12, padding:'16px'}}>
+          <div style={{fontSize:11, fontWeight:700, color:T.correct, letterSpacing:2, textTransform:'uppercase', marginBottom:12}}>✓ Correct ({correctWords.length})</div>
+          <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
+            {correctWords.length === 0 && <span style={{fontSize:12, color:T.textMuted}}>None</span>}
+            {correctWords.map((w,i) => (
+              <span key={i} style={{fontFamily:T.mono, fontSize:12, fontWeight:600, color:T.correct, background:T.correctDim, borderRadius:4, padding:'3px 7px'}}>
+                {w.toUpperCase()}
+              </span>
+            ))}
+          </div>
+        </div>
+        {/* Wrong */}
+        <div style={{background:T.bgCard, border:`1px solid ${T.border}`, borderRadius:12, padding:'16px'}}>
+          <div style={{fontSize:11, fontWeight:700, color:T.wrong, letterSpacing:2, textTransform:'uppercase', marginBottom:12}}>✗ Missed ({wrongWords.length})</div>
+          <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
+            {wrongWords.length === 0 && <span style={{fontSize:12, color:T.textMuted}}>None!</span>}
+            {wrongWords.map((w,i) => (
+              <span key={i} style={{fontFamily:T.mono, fontSize:12, fontWeight:600, color:T.wrong, background:T.wrongDim, borderRadius:4, padding:'3px 7px'}}>
+                {w.toUpperCase()}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div style={{display:'flex', gap:10}}>
+        <button onClick={onSettings} style={{
+          flex:1, padding:'14px', background:'none', border:`2px solid ${T.border}`,
+          borderRadius:10, color:T.text, cursor:'pointer', fontSize:14, fontWeight:600,
+          fontFamily:"'Inter',sans-serif",
+        }}
+          onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent}
+          onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}
+        >
+          ← Settings
+        </button>
+        <button onClick={onPlayAgain} style={{
+          flex:2, padding:'14px', background:T.accent, border:'none',
+          borderRadius:10, color:T.accentText, cursor:'pointer',
+          fontSize:14, fontWeight:700, fontFamily:"'Inter',sans-serif", letterSpacing:1,
+        }}>
+          Play Again →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── PRACTICE SCREEN ───────────────────────────────────────────────────────────
+function PracticeScreen({ T, q, playState, chosen, onPlay, onAnswer, onNext, onReplay, wpm }) {
+  const answered = playState === 'answered';
+  const canAnswer = playState === 'ready';
+
+  return (
+    <div className="fade-in">
+      <div style={{paddingTop:28, paddingBottom:20}}>
+
+        {/* Play card */}
+        <div style={{
+          background:T.bgCard, border:`1px solid ${T.border}`, borderRadius: T.scanlines ? 2 : 16,
+          padding:'28px 24px', textAlign:'center', marginBottom:20, position:'relative',
+        }}>
+          {/* Corner brackets for vintage theme */}
+          {T.scanlines && ['tl','tr','bl','br'].map(p => (
+            <div key={p} style={{position:'absolute', width:10, height:10,
+              top:p[0]==='t'?-1:'auto', bottom:p[0]==='b'?-1:'auto',
+              left:p[1]==='l'?-1:'auto', right:p[1]==='r'?-1:'auto',
+              borderTop:   p[0]==='t'?`2px solid ${T.accent}`:'none',
+              borderBottom:p[0]==='b'?`2px solid ${T.accent}`:'none',
+              borderLeft:  p[1]==='l'?`2px solid ${T.accent}`:'none',
+              borderRight: p[1]==='r'?`2px solid ${T.accent}`:'none',
+            }} />
+          ))}
+          {/* Playing state: wave animation */}
+          {playState === 'playing' && (
+            <div style={{display:'flex', alignItems:'center', justifyContent:'center', height:88, margin:'0 auto 16px'}}>
+              <WaveAnim color={T.accent} glow={T.scanlines} />
+            </div>
+          )}
+
+          {/* Ready state: prompt only, no button */}
+          {playState === 'ready' && (
+            <div style={{height:88, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px'}}>
+              <div style={{fontSize:15, color:T.textMuted, fontWeight:500}}>Select the word you heard</div>
+            </div>
+          )}
+
+          {/* Idle state: play button */}
+          {(playState === 'idle') && (
+            <button onClick={onPlay} style={{
+              width:88, height:88, borderRadius:'50%', background:T.accent,
+              border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+              margin:'0 auto 16px', transition:'transform 0.15s',
+            }}
+              onMouseEnter={e=>e.currentTarget.style.transform='scale(1.06)'}
+              onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}
+            >
+              <span style={{color:T.accentText, fontSize:26, marginLeft:4}}>▶</span>
+            </button>
+          )}
+
+          {/* Answered state: spacer to keep card height consistent */}
+          {answered && (
+            <div style={{height:72, margin:'0 auto 16px'}} />
+          )}
+
+          {/* Status */}
+          <div style={{fontSize:13, color:T.textMuted, minHeight:18}}>
+            {playState === 'idle' && 'Loading…'}
+            {playState === 'playing' && <span style={{color:T.accent, fontWeight:500}}>Listening…</span>}
+            {answered && (
+              <span style={{color: chosen === q.correct ? T.correct : T.wrong, fontWeight:600, fontSize:14}}>
+                {chosen === q.correct ? '✓ Correct!' : '✗ Incorrect'}
+              </span>
+            )}
+          </div>
+
+          {/* Reveal + action buttons */}
+          {answered && (
+            <div className="slide-up">
+              <div style={{marginTop:16, marginBottom:20}}>
+                <div style={{fontSize:28, fontFamily:T.mono, fontWeight:700, color:T.correct, letterSpacing:3}}>
+                  {q.correct.toUpperCase()}
+                </div>
+                <div style={{fontSize:12, fontFamily:T.mono, color:T.textMuted, marginTop:6, letterSpacing:2, wordBreak:'break-all'}}>
+                  {textToMorse(q.correct)}
+                </div>
+              </div>
+              <div style={{display:'flex', gap:10, marginTop:4}}>
+                <button onClick={onReplay} style={{
+                  flex:1, padding:'12px', background:'none',
+                  border:`2px solid ${T.border}`, borderRadius:10,
+                  color:T.text, cursor:'pointer', fontSize:14, fontWeight:600,
+                  fontFamily:"'Inter',sans-serif", transition:'border-color 0.15s',
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}
+                >
+                  ↺ Replay
+                </button>
+                <button onClick={onNext} style={{
+                  flex:2, padding:'12px', background:T.accent, border:'none',
+                  borderRadius:10, color:T.accentText, cursor:'pointer',
+                  fontSize:14, fontWeight:700, fontFamily:"'Inter',sans-serif", letterSpacing:1,
+                }}>
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 6 choices — only shown after audio finishes */}
+        <div style={{
+          display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8,
+          opacity: (playState === 'ready' || playState === 'answered') ? 1 : 0,
+          pointerEvents: (playState === 'ready' || playState === 'answered') ? 'auto' : 'none',
+          transition: 'opacity 0.3s ease',
+        }}>
+          {q.choices.map((ch, i) => {
+            let bg = T.bgCard, border = T.border, color = T.text, fw = 500;
+            if (answered) {
+              if (ch === q.correct) { bg = T.correctDim; border = T.correct; color = T.correct; fw = 700; }
+              else if (ch === chosen) { bg = T.wrongDim; border = T.wrong; color = T.wrong; fw = 700; }
+              else { bg = T.bgCard; color = T.textMuted; border = T.border; }
+            }
+            return (
+              <button key={i}
+                style={{
+                  padding:'12px 8px', border:`2px solid ${border}`, borderRadius: T.scanlines ? 2 : 10,
+                  background:bg, color, cursor: canAnswer ? 'pointer' : 'default',
+                  fontSize:13, fontWeight:fw, fontFamily:T.mono, letterSpacing:2,
+                  textAlign:'center', transition:'all 0.15s',
+                  opacity: (!canAnswer && !answered) ? 0.4 : 1,
+                  boxShadow: (answered && ch === q.correct && T.scanlines) ? `0 0 8px ${T.correct}88` : 'none',
+                }}
+                onMouseEnter={e => { if (canAnswer) e.currentTarget.style.background = T.bgCardHover; }}
+                onMouseLeave={e => { if (canAnswer) e.currentTarget.style.background = bg; }}
+                onClick={() => canAnswer && onAnswer(ch)}
+              >
+                {ch.toUpperCase()}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── WAVE ANIMATION ────────────────────────────────────────────────────────────
+function WaveAnim({ color, glow }) {
+  return (
+    <div style={{display:'flex', alignItems:'center', gap:3, height:36}}>
+      {['bar1','bar2','bar3','bar4','bar5'].map((cls,i) => (
+        <div key={i} className={cls} style={{
+          width:5, height:30, borderRadius:2, background:color,
+          transformOrigin:'center',
+          boxShadow: glow ? `0 0 7px ${color}cc, 0 0 14px ${color}55` : 'none',
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// ── TOGGLE ────────────────────────────────────────────────────────────────────
+function Toggle({ on, onToggle, T }) {
+  return (
+    <button onClick={onToggle} style={{
+      flexShrink:0, width:44, height:26, borderRadius:13,
+      background: on ? T.accent : T.border,
+      border:'none', cursor:'pointer', position:'relative',
+      transition:'background 0.2s',
+    }}>
+      <span style={{
+        position:'absolute', top:3, left: on ? 21 : 3,
+        width:20, height:20, borderRadius:'50%',
+        background: on ? T.accentText : T.text,
+        transition:'left 0.2s',
+        display:'block',
+      }} />
+    </button>
+  );
+}
+
+// ── SCANLINES ─────────────────────────────────────────────────────────────────
+function Scanlines() {
+  return (
+    <div style={{
+      position:'fixed', inset:0, pointerEvents:'none', zIndex:100,
+      background:'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px)',
+    }} />
+  );
+}
+
+// ── TWEAKS PANEL ──────────────────────────────────────────────────────────────
+function TweaksPanel({ T, tweaks, setTweak }) {
+  return (
+    <div style={{
+      position:'fixed', bottom:20, right:20,
+      background:T.bgCard, border:`1px solid ${T.border}`,
+      borderRadius:12, padding:'16px 18px', width:240, zIndex:200,
+      boxShadow:'0 8px 40px rgba(0,0,0,0.4)',
+    }}>
+      <div style={{fontWeight:700, fontSize:12, color:T.accent, letterSpacing:2, textTransform:'uppercase', marginBottom:14}}>
+        Tweaks
+      </div>
+
+      {/* Theme picker */}
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:11, color:T.textMuted, fontWeight:600, letterSpacing:1, textTransform:'uppercase', marginBottom:8}}>Theme</div>
+        <div style={{display:'flex', gap:6}}>
+          {Object.values(THEMES).map(th => (
+            <button key={th.id} onClick={()=>setTweak('theme', th.id)} style={{
+              flex:1, padding:'7px 4px', borderRadius:6,
+              border:`2px solid ${tweaks.theme === th.id ? T.accent : T.border}`,
+              background:th.bg, color:th.text, cursor:'pointer',
+              fontSize:10, fontWeight:600, fontFamily:"'Inter',sans-serif",
+            }}>{th.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Frequency */}
+      <div>
+        <div style={{fontSize:11, color:T.textMuted, fontWeight:600, letterSpacing:1, textTransform:'uppercase', marginBottom:6}}>
+          Tone — <span style={{color:T.accent, fontFamily:T.mono}}>{tweaks.frequency} Hz</span>
+        </div>
+        <input type="range" min={400} max={800} step={10} value={tweaks.frequency}
+          onChange={e=>setTweak('frequency', +e.target.value)}
+          style={{width:'100%', accentColor:T.accent, background:T.border}} />
+        <div style={{display:'flex', justifyContent:'space-between', fontSize:10, color:T.textMuted, marginTop:4}}>
+          <span>400 Hz</span><span>800 Hz</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
