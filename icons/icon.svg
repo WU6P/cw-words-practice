@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="32" fill="#1c1400"/>
+  <text x="96" y="80" text-anchor="middle" font-family="'Courier New',monospace" font-size="28" font-weight="700" fill="#d4900a" letter-spacing="4">CW</text>
+  <text x="96" y="118" text-anchor="middle" font-family="'Courier New',monospace" font-size="18" fill="#eedfa0" letter-spacing="2">.- .-.</text>
+  <rect x="44" y="134" width="16" height="24" rx="3" fill="#d4900a"/>
+  <rect x="68" y="124" width="16" height="34" rx="3" fill="#d4900a"/>
+  <rect x="92" y="130" width="16" height="28" rx="3" fill="#d4900a"/>
+  <rect x="116" y="120" width="16" height="38" rx="3" fill="#d4900a"/>
+  <rect x="140" y="136" width="16" height="22" rx="3" fill="#d4900a"/>
+</svg>

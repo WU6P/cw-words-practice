@@ -1,0 +1,17 @@
+{
+  "name": "CW Words Practice",
+  "short_name": "CW Practice",
+  "description": "Morse code multiple-choice trainer for desktop and mobile",
+  "start_url": "./CW_words_practice.html",
+  "display": "standalone",
+  "background_color": "#1c1400",
+  "theme_color": "#d4900a",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
