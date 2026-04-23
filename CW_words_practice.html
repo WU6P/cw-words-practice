@@ -399,7 +399,9 @@ function renderSettings(t) {
   // Character Speed
   const sec2 = el('div', { style:{ marginBottom:'28px' }});
   const wpmLabel = el('label', { style:lblStyle });
-  wpmLabel.innerHTML = `Character Speed — <span style="color:${t.accent};font-family:${t.mono}">${cfg.wpm} WPM</span>`;
+  const wpmValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, `${cfg.wpm} WPM`);
+  wpmLabel.appendChild(document.createTextNode('Character Speed — '));
+  wpmLabel.appendChild(wpmValSpan);
   sec2.appendChild(wpmLabel);
   const wpmSlider = el('input', { type:'range', min:'10', max:'65', step:'1', value:String(cfg.wpm),
     style:{ accentColor:t.accent }});
@@ -408,8 +410,9 @@ function renderSettings(t) {
   wpmSlider.addEventListener('input', () => {
     cfg.wpm = +wpmSlider.value;
     if (cfg.fwpm > cfg.wpm) cfg.fwpm = cfg.wpm;
-    render();
+    wpmValSpan.textContent = `${cfg.wpm} WPM`;
   });
+  wpmSlider.addEventListener('change', () => { render(); });
   sec2.appendChild(wpmSlider);
   const wpmRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
   wpmRange.appendChild(el('span', {}, '10 WPM'));
@@ -493,13 +496,16 @@ function renderSettingsModal(t) {
   if (cfg.farnsworth) {
     const fwExtra = el('div', { style:{ marginTop:'16px', paddingTop:'16px', borderTop:`1px solid ${t.border}` }});
     const fwLabel = el('label', { style:{ ...lblStyle, marginBottom:'8px' }});
-    fwLabel.innerHTML = `Spacing Speed — <span style="color:${t.accent};font-family:${t.mono}">${cfg.fwpm} WPM</span>`;
+    const fwValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, `${cfg.fwpm} WPM`);
+    fwLabel.appendChild(document.createTextNode('Spacing Speed — '));
+    fwLabel.appendChild(fwValSpan);
     fwExtra.appendChild(fwLabel);
     const fwSlider = el('input', { type:'range', min:'5', max:String(cfg.wpm), step:'1', value:String(cfg.fwpm),
       style:{ accentColor:t.accent }});
     fwSlider.style.setProperty('--thumb-color', t.accent);
     fwSlider.style.setProperty('--track-color', t.border);
-    fwSlider.addEventListener('input', () => { cfg.fwpm = +fwSlider.value; render(); });
+    fwSlider.addEventListener('input', () => { cfg.fwpm = +fwSlider.value; fwValSpan.textContent = `${cfg.fwpm} WPM`; });
+    fwSlider.addEventListener('change', () => { render(); });
     fwExtra.appendChild(fwSlider);
     const fwRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
     fwRange.appendChild(el('span', {}, '5 WPM'));
@@ -530,15 +536,18 @@ function renderSettingsModal(t) {
   // Tone frequency
   const sec5 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
   const freqLabel = el('label', { style:lblStyle });
-  freqLabel.innerHTML = `Tone Frequency — <span style="color:${t.accent};font-family:${t.mono}">${tweaks.frequency} Hz</span>`;
+  const freqValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, `${tweaks.frequency} Hz`);
+  freqLabel.appendChild(document.createTextNode('Tone Frequency — '));
+  freqLabel.appendChild(freqValSpan);
   sec5.appendChild(freqLabel);
   const freqSlider = el('input', { type:'range', min:'400', max:'800', step:'10', value:String(tweaks.frequency),
     style:{ accentColor:t.accent }});
   freqSlider.style.setProperty('--thumb-color', t.accent);
   freqSlider.style.setProperty('--track-color', t.border);
   freqSlider.addEventListener('input', () => {
-    tweaks.frequency = +freqSlider.value; saveTweaks(); render();
+    tweaks.frequency = +freqSlider.value; saveTweaks(); freqValSpan.textContent = `${tweaks.frequency} Hz`;
   });
+  freqSlider.addEventListener('change', () => { render(); });
   sec5.appendChild(freqSlider);
   const freqRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
   freqRange.appendChild(el('span', {}, '400 Hz'));
