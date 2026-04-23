@@ -4,33 +4,34 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>CW Practice</title>
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <style>
+/* ── RESET & BASE ─────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, #root { height: 100%; }
-body { font-family: 'Inter', sans-serif; overflow-x: hidden; }
-input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; outline: none; cursor: pointer; }
+html, body { height: 100%; }
+body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; overflow-x: hidden; }
+
+input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; outline: none; cursor: pointer; width: 100%; }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; }
-@keyframes pulse { 0%,100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes scanline { 0% { top: 0; } 100% { top: 100%; } }
-.bar1 { animation: pulse 0.7s ease-in-out infinite; animation-delay: 0s; }
-.bar2 { animation: pulse 0.7s ease-in-out infinite; animation-delay: 0.1s; }
-.bar3 { animation: pulse 0.7s ease-in-out infinite; animation-delay: 0.2s; }
-.bar4 { animation: pulse 0.7s ease-in-out infinite; animation-delay: 0.3s; }
-.bar5 { animation: pulse 0.7s ease-in-out infinite; animation-delay: 0.15s; }
-.fade-in { animation: fadeIn 0.3s ease forwards; }
+
+button { cursor: pointer; font-family: inherit; }
+
+/* ── ANIMATIONS ───────────────────────────────────────────────────────────── */
+@keyframes pulse    { 0%,100%{transform:scaleY(0.3)} 50%{transform:scaleY(1)} }
+@keyframes fadeIn   { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+@keyframes slideUp  { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+.bar1{animation:pulse 0.7s ease-in-out infinite;animation-delay:0s}
+.bar2{animation:pulse 0.7s ease-in-out infinite;animation-delay:0.1s}
+.bar3{animation:pulse 0.7s ease-in-out infinite;animation-delay:0.2s}
+.bar4{animation:pulse 0.7s ease-in-out infinite;animation-delay:0.3s}
+.bar5{animation:pulse 0.7s ease-in-out infinite;animation-delay:0.15s}
+.fade-in  { animation: fadeIn  0.3s ease forwards; }
 .slide-up { animation: slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards; }
 </style>
 </head>
 <body>
 <div id="root"></div>
-<script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
+<script>
+'use strict';
 
 // ── MORSE TABLE ──────────────────────────────────────────────────────────────
 const MORSE = {
@@ -50,23 +51,17 @@ const MORSE = {
   '-':'-....-', '_':'..--.-', '"':'.-..-.', '$':'...-..-',
   '@':'.--.-.',
   // Prosigns via single-char shortcuts
-  '<':'...-.-',  // SK / VA — end of work
-  '>':'-...-.-', // BK — break
-  '!':'...-.',   // SN — understood
-  '^':'-.-.-',   // KA — starting signal
-  '~':'.-.-..',  // AL — paragraph
-  // Prosigns via [XX] notation (multi-letter keys)
-  AR:'.-.-.',   // AR — end of message
-  SK:'...-.-',  // SK — end of work
-  BT:'-...-',   // BT — paragraph / section break
-  KN:'-.--.',   // KN — go ahead (specific station only)
-  AS:'.-...',   // AS — wait
-  BK:'-...-.-', // BK — break
-  KA:'-.-.-',   // KA — starting signal
+  '<':'...-.-',  // SK / VA
+  '>':'-...-.-', // BK
+  '!':'...-.',   // SN
+  '^':'-.-.-',   // KA
+  '~':'.-.-..',  // AL
+  // Prosigns via [XX] notation
+  AR:'.-.-.',   SK:'...-.-',  BT:'-...-',
+  KN:'-.--.',   AS:'.-...',   BK:'-...-.-', KA:'-.-.-',
 };
 
-// Tokenize text into an array of lookup keys, honouring [PROSIGN] notation.
-// e.g. "CQ [AR]" → ['C','Q',' ','[AR]'] where '[AR]' resolves via MORSE['AR']
+// Tokenize text, honouring [PROSIGN] bracket notation
 function tokenize(text) {
   const tokens = [];
   const upper = text.toUpperCase();
@@ -74,11 +69,7 @@ function tokenize(text) {
   while (i < upper.length) {
     if (upper[i] === '[') {
       const end = upper.indexOf(']', i + 1);
-      if (end !== -1) {
-        tokens.push(upper.slice(i + 1, end)); // e.g. 'AR'
-        i = end + 1;
-        continue;
-      }
+      if (end !== -1) { tokens.push(upper.slice(i + 1, end)); i = end + 1; continue; }
     }
     tokens.push(upper[i]);
     i++;
@@ -101,27 +92,23 @@ function getCtx() {
 function playMorseAudio(text, charWpm, effectiveWpm, frequency) {
   return new Promise(resolve => {
     const ctx = getCtx();
-    const dit = 1.2 / charWpm; // seconds
-
-    // Farnsworth: calc gap unit so effective WPM matches
+    const dit = 1.2 / charWpm;
     const charUnitsTime = 31 * dit;
     const totalWordTime = 60 / effectiveWpm;
     const gapUnit = Math.max(dit, (totalWordTime - charUnitsTime) / 19);
 
     let t = ctx.currentTime + 0.08;
-    // Split on spaces to get words, then tokenize each word for [PROSIGN] support
     const words = text.trim().split(/\s+/);
 
     words.forEach((word, wi) => {
-      tokenize(word).forEach((char) => {
+      tokenize(word).forEach(char => {
         const code = MORSE[char];
         if (!code) return;
         [...code].forEach(sym => {
           const dur = sym === '.' ? dit : dit * 3;
-          const osc = ctx.createOscillator();
+          const osc  = ctx.createOscillator();
           const gain = ctx.createGain();
-          osc.connect(gain);
-          gain.connect(ctx.destination);
+          osc.connect(gain); gain.connect(ctx.destination);
           osc.frequency.value = frequency;
           osc.type = 'sine';
           const ramp = Math.min(0.006, dur * 0.15);
@@ -129,13 +116,12 @@ function playMorseAudio(text, charWpm, effectiveWpm, frequency) {
           gain.gain.linearRampToValueAtTime(0.42, t + ramp);
           gain.gain.setValueAtTime(0.42, t + dur - ramp);
           gain.gain.linearRampToValueAtTime(0, t + dur);
-          osc.start(t);
-          osc.stop(t + dur + 0.01);
-          t += dur + dit; // inter-element gap
+          osc.start(t); osc.stop(t + dur + 0.01);
+          t += dur + dit;
         });
-        t += 3 * gapUnit - dit; // inter-char gap
+        t += 3 * gapUnit - dit;
       });
-      if (wi < words.length - 1) t += 4 * gapUnit; // inter-word gap
+      if (wi < words.length - 1) t += 4 * gapUnit;
     });
 
     setTimeout(resolve, (t - ctx.currentTime) * 1000 + 300);
@@ -159,7 +145,7 @@ const WORDS = {
   top200: W200,
   top300: W300,
   top500: W500,
-  top501_750: W501_750,
+  top501_750:  W501_750,
   top751_1000: W751_1000,
   top1001_1250: W1001_1250,
   top1251_1500: W1251_1500,
@@ -171,9 +157,24 @@ const WORDS = {
   qso: '.,/,359,479,489,559,579,589,599,5NN,73,88,[AR],[BT],[KN],[SK],?,A,ABT,AGE,AGN,ALL,AND,ANT,ARE,AS,AT,BCNU,BE,BEAM,BEEN,BK,BTU,BURO,BUT,BY,CAN,CFM,COLD,CPI,CPY,CQ,CU,CUL,CW,DE,DID,DIPOLE,DO,DONT,DR,DX,EFHW,EL,ES,FB,FER,FROM,FT,GA,GB,GD,GE,GL,GM,GN,GUD,HAD,HAS,HAVE,HE,HI HI,HIS,HOT,HOUR,HPE,HR,HV,HW,HW?,IF,IN,INFO,IS,IT,ITS,K,KEY,KNOW,LIKE,LONG,LOOP,MANY,MNI,MORE,MY,NAME,NO,NOT,NR,NW,OCF,OF,OK,OM,ON,ONE,OP,OR,OUT,PLS,PSE,PWR,QRL,QRL?,QRM,QRN,QRO,QRP,QRQ,QRS,QRT,QRU,QRX,QRZ,QRZ?,QSB,QSL,QSO,QSY,QTH,R,RIG,RPRT,RPT,RR,RST,RX,SHE,SIG,SO,SOME,SRI,SSB,SWR,TEMP,TEST,THAT,THE,THEIR,THEM,THERE,THEY,THIS,TKS,TNX,TO,TU,TX,UP,UR,VERT,VY,WAS,WATT,WE,WELL,WERE,WHAT,WHEN,WILL,WIRE,WITH,WUD,WX,XYL,YAGI,YL,YOU,YOUR'.split(','),
 };
 
-function getWordPool(key) {
-  return WORDS[key] || WORDS.top100;
-}
+const LIST_OPTS = [
+  {key:'top100',       label:'Top 100 Words'},
+  {key:'top200',       label:'Top 200 Words'},
+  {key:'top300',       label:'Top 300 Words'},
+  {key:'top500',       label:'Top 500 Words'},
+  {key:'top501_750',   label:'Top 501–750'},
+  {key:'top751_1000',  label:'Top 751–1000'},
+  {key:'top1001_1250', label:'Top 1001–1250'},
+  {key:'top1251_1500', label:'Top 1251–1500'},
+  {key:'top1501_1750', label:'Top 1501–1750'},
+  {key:'top1751_2000', label:'Top 1751–2000'},
+  {key:'top1000',      label:'Top 1000 Words'},
+  {key:'top1500',      label:'Top 1500 Words'},
+  {key:'top2000',      label:'Top 2000 Words'},
+  {key:'qso',          label:'QSO Phrases'},
+];
+
+function getWordPool(key) { return WORDS[key] || WORDS.top100; }
 
 function makeQuestion(listKey) {
   const pool = getWordPool(listKey);
@@ -185,643 +186,615 @@ function makeQuestion(listKey) {
     distractors.push(others[i]);
     others.splice(i, 1);
   }
-  while (distractors.length < 5) distractors.push(pool[Math.floor(Math.random()*pool.length)]);
-  const choices = [correct, ...distractors].sort(() => Math.random() - 0.5);
-  return { correct, choices };
+  while (distractors.length < 5) distractors.push(pool[Math.floor(Math.random() * pool.length)]);
+  return { correct, choices: [correct, ...distractors].sort(() => Math.random() - 0.5) };
 }
 
 // ── THEMES ────────────────────────────────────────────────────────────────────
 const THEMES = {
   shack: {
-    id: 'shack', label: 'Shack',
-    bg: '#120d00', bgCard: '#1c1400', bgCardHover: '#251c00',
-    text: '#eedfa0', textMuted: '#7a5a20', accent: '#d4900a',
-    accentDim: '#d4900a22', accentText: '#120d00',
-    correct: '#7ab840', correctDim: '#7ab84022',
-    wrong: '#c84828', wrongDim: '#c8482822',
-    border: '#5a3e0a', mono: "'Courier Prime', 'Courier New', monospace",
-    scanlines: true,
+    id:'shack', label:'Shack',
+    bg:'#120d00', bgCard:'#1c1400', bgCardHover:'#251c00',
+    text:'#eedfa0', textMuted:'#7a5a20', accent:'#d4900a',
+    accentDim:'#d4900a22', accentText:'#120d00',
+    correct:'#7ab840', correctDim:'#7ab84022',
+    wrong:'#c84828', wrongDim:'#c8482822',
+    border:'#5a3e0a', mono:"'Courier New', 'Courier', monospace",
+    scanlines:true,
   },
   clean: {
-    id: 'clean', label: 'Clean',
-    bg: '#f5f3ee', bgCard: '#ffffff', bgCardHover: '#eeebe4',
-    text: '#1c1917', textMuted: '#78716c', accent: '#1d4ed8',
-    accentDim: '#1d4ed810', accentText: '#ffffff',
-    correct: '#16a34a', correctDim: '#16a34a18',
-    wrong: '#dc2626', wrongDim: '#dc262618',
-    border: '#e2ddd6', mono: "'Space Mono', monospace",
-    scanlines: false,
+    id:'clean', label:'Clean',
+    bg:'#f5f3ee', bgCard:'#ffffff', bgCardHover:'#eeebe4',
+    text:'#1c1917', textMuted:'#78716c', accent:'#1d4ed8',
+    accentDim:'#1d4ed810', accentText:'#ffffff',
+    correct:'#16a34a', correctDim:'#16a34a18',
+    wrong:'#dc2626', wrongDim:'#dc262618',
+    border:'#e2ddd6', mono:"'Courier New', monospace",
+    scanlines:false,
   },
   terminal: {
-    id: 'terminal', label: 'Terminal',
-    bg: '#020802', bgCard: '#041004', bgCardHover: '#072010',
-    text: '#00e040', textMuted: '#006620', accent: '#00ff55',
-    accentDim: '#00ff5518', accentText: '#020802',
-    correct: '#00ff55', correctDim: '#00ff5520',
-    wrong: '#ff4040', wrongDim: '#ff404020',
-    border: '#003310', mono: "'Space Mono', monospace",
-    scanlines: true,
+    id:'terminal', label:'Terminal',
+    bg:'#020802', bgCard:'#041004', bgCardHover:'#072010',
+    text:'#00e040', textMuted:'#006620', accent:'#00ff55',
+    accentDim:'#00ff5518', accentText:'#020802',
+    correct:'#00ff55', correctDim:'#00ff5520',
+    wrong:'#ff4040', wrongDim:'#ff404020',
+    border:'#003310', mono:"'Courier New', monospace",
+    scanlines:true,
   },
 };
 
-// ── LIST OPTIONS ──────────────────────────────────────────────────────────────
-const LIST_OPTS = [
-  {key:'top100',      label:'Top 100 Words'},
-  {key:'top200',      label:'Top 200 Words'},
-  {key:'top300',      label:'Top 300 Words'},
-  {key:'top500',      label:'Top 500 Words'},
-  {key:'top501_750',  label:'Top 501–750'},
-  {key:'top751_1000', label:'Top 751–1000'},
-  {key:'top1001_1250',label:'Top 1001–1250'},
-  {key:'top1251_1500',label:'Top 1251–1500'},
-  {key:'top1501_1750',label:'Top 1501–1750'},
-  {key:'top1751_2000',label:'Top 1751–2000'},
-  {key:'top1000',     label:'Top 1000 Words'},
-  {key:'top1500',     label:'Top 1500 Words'},
-  {key:'top2000',     label:'Top 2000 Words'},
-  {key:'qso',        label:'QSO Phrases'},
-];
+// ── STATE ─────────────────────────────────────────────────────────────────────
+const state = {
+  screen: 'settings',        // settings | practice | summary
+  cfg: { listKey:'top100', wpm:20, farnsworth:false, fwpm:15, sessionSize:20 },
+  q: null,
+  playState: 'idle',         // idle | playing | ready | answered
+  chosen: null,
+  score: { c:0, t:0 },
+  sessionLog: [],
+  tweaks: loadTweaks(),
+  playing: false,            // mutex
+  autoPlayTimer: null,
+};
 
-// ── TWEAK DEFAULTS ────────────────────────────────────────────────────────────
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "theme": "shack",
-  "frequency": 550
-}/*EDITMODE-END*/;
+function loadTweaks() {
+  try { return { theme:'shack', frequency:550, ...JSON.parse(localStorage.getItem('cw_tweaks')) }; }
+  catch { return { theme:'shack', frequency:550 }; }
+}
+function saveTweaks() { localStorage.setItem('cw_tweaks', JSON.stringify(state.tweaks)); }
+function T() { return THEMES[state.tweaks.theme] || THEMES.shack; }
 
-// ── APP ───────────────────────────────────────────────────────────────────────
-function App() {
-  const [screen, setScreen] = useState('settings');
-  const [cfg, setCfg] = useState({
-    listKey: 'top100', wpm: 20, farnsworth: false, fwpm: 15, sessionSize: 20,
-  });
-  const [q, setQ] = useState(null);
-  const [playState, setPlayState] = useState('idle'); // idle|playing|ready|answered
-  const [chosen, setChosen] = useState(null);
-  const [score, setScore] = useState({c:0, t:0});
-  const [sessionLog, setSessionLog] = useState([]); // [{word, correct}]
-  const [tweaks, setTweaks] = useState(() => {
-    try { return {...TWEAK_DEFAULTS, ...JSON.parse(localStorage.getItem('cw_tweaks'))}; } catch { return TWEAK_DEFAULTS; }
-  });
-  const [showTweaks, setShowTweaks] = useState(false);
-  const playRef = useRef(false);
+// ── RENDER HELPERS ────────────────────────────────────────────────────────────
+function el(tag, attrs, ...children) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'style' && typeof v === 'object') Object.assign(e.style, v);
+    else if (k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2).toLowerCase(), v);
+    else if (k === 'className') e.className = v;
+    else if (k === 'htmlFor') e.htmlFor = v;
+    else e.setAttribute(k, v);
+  }
+  for (const child of children) {
+    if (child == null) continue;
+    e.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+  }
+  return e;
+}
+function css(obj) {  // convert style object to inline string (unused but handy)
+  return Object.entries(obj).map(([k,v]) => `${k.replace(/([A-Z])/g,'-$1').toLowerCase()}:${v}`).join(';');
+}
 
-  const T = THEMES[tweaks.theme] || THEMES.shack;
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function render() {
+  const root = document.getElementById('root');
+  root.innerHTML = '';
+  const t = T();
 
-  useEffect(() => {
-    const h = e => {
-      if (e.data?.type === '__activate_edit_mode') setShowTweaks(true);
-      if (e.data?.type === '__deactivate_edit_mode') setShowTweaks(false);
-    };
-    window.addEventListener('message', h);
-    window.parent.postMessage({type:'__edit_mode_available'}, '*');
-    return () => window.removeEventListener('message', h);
-  }, []);
+  // Scanlines overlay
+  if (t.scanlines) {
+    root.appendChild(el('div', { style:{
+      position:'fixed', inset:0,
+      backgroundImage:'repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.13) 3px,rgba(0,0,0,0.13) 4px)',
+      pointerEvents:'none', zIndex:50,
+    }}));
+    root.appendChild(el('div', { style:{
+      position:'fixed', inset:0,
+      backgroundImage:`radial-gradient(${t.border}40 1px, transparent 1px)`,
+      backgroundSize:'18px 18px', pointerEvents:'none', zIndex:1,
+    }}));
+  }
 
-  // Auto-play whenever a new question is loaded on the practice screen
-  const autoPlayRef = useRef(null);
-  useEffect(() => {
-    if (screen === 'practice' && q) {
-      clearTimeout(autoPlayRef.current);
-      autoPlayRef.current = setTimeout(() => doPlay(), 150);
-    }
-    return () => clearTimeout(autoPlayRef.current);
-  }, [q, screen]); // eslint-disable-line
+  const wrap = el('div', { style:{
+    minHeight:'100vh', background:t.bg, color:t.text,
+    fontFamily:"system-ui, -apple-system, 'Segoe UI', sans-serif",
+    display:'flex', flexDirection:'column', position:'relative',
+  }});
 
-  const saveScore = s => setScore(s);
-  const startPractice = () => {
-    const question = makeQuestion(cfg.listKey);
-    setQ(question);
-    setChosen(null);
-    setScreen('practice');
-    setPlayState('idle');
-    setScore({c:0, t:0});
-    setSessionLog([]);
-  };
+  wrap.appendChild(renderHeader(t));
 
-  const setTweak = (k,v) => {
-    const n = {...tweaks, [k]:v};
-    setTweaks(n);
-    localStorage.setItem('cw_tweaks', JSON.stringify(n));
-    window.parent.postMessage({type:'__edit_mode_set_keys', edits:{[k]:v}}, '*');
-  };
+  const body = el('div', { style:{
+    flex:'1', display:'flex', flexDirection:'column',
+    alignItems:'center', padding:'0 16px 32px',
+  }});
+  const inner = el('div', { style:{ width:'100%', maxWidth:'560px' }});
 
-  const doPlay = useCallback(async () => {
-    if (playRef.current) return;
-    playRef.current = true;
-    setPlayState('playing');
-    const fwpm = cfg.farnsworth ? Math.min(cfg.fwpm, cfg.wpm) : cfg.wpm;
-    await playMorseAudio(q.correct, cfg.wpm, fwpm, tweaks.frequency);
-    playRef.current = false;
-    setPlayState(prev => prev === 'playing' ? 'ready' : prev);
-  }, [q, cfg, tweaks.frequency]);
+  if (state.screen === 'settings') inner.appendChild(renderSettings(t));
+  else if (state.screen === 'practice' && state.q) inner.appendChild(renderPractice(t));
+  else if (state.screen === 'summary') inner.appendChild(renderSummary(t));
 
-  const handleNext = useCallback(() => {
-    const question = makeQuestion(cfg.listKey);
-    setQ(question);
-    setPlayState('idle');
-    setChosen(null);
-  }, [cfg.listKey]);
+  body.appendChild(inner);
+  wrap.appendChild(body);
+  root.appendChild(wrap);
 
-  const handleAnswer = useCallback(choice => {
-    if (playState !== 'ready') return;
-    setChosen(choice);
-    setPlayState('answered');
-    const ok = choice === q.correct;
-    const newScore = {c: score.c + (ok?1:0), t: score.t + 1};
-    const newLog = [...sessionLog, {word: q.correct, correct: ok}];
-    setScore(newScore);
-    setSessionLog(newLog);
-
-    const sessionDone = newLog.length >= cfg.sessionSize;
-
-    if (ok) {
-      setTimeout(() => {
-        if (sessionDone) { setScreen('summary'); return; }
-        const question = makeQuestion(cfg.listKey);
-        setQ(question); setPlayState('idle'); setChosen(null);
-      }, 1100);
-    } else {
-      // Replay wrong answer
-      setTimeout(async () => {
-        if (playRef.current) return;
-        playRef.current = true;
-        const fwpm = cfg.farnsworth ? Math.min(cfg.fwpm, cfg.wpm) : cfg.wpm;
-        await playMorseAudio(q.correct, cfg.wpm, fwpm, tweaks.frequency);
-        playRef.current = false;
-      }, 400);
-    }
-  }, [playState, q, cfg, score, sessionLog, tweaks.frequency]);
-
-  const handleReplay = useCallback(async () => {
-    if (playRef.current) return;
-    playRef.current = true;
-    const fwpm = cfg.farnsworth ? Math.min(cfg.fwpm, cfg.wpm) : cfg.wpm;
-    await playMorseAudio(q.correct, cfg.wpm, fwpm, tweaks.frequency);
-    playRef.current = false;
-  }, [q, cfg, tweaks.frequency]);
-
-  return (
-    <div style={{minHeight:'100vh', background:T.bg, color:T.text, fontFamily:"'Inter',sans-serif", display:'flex', flexDirection:'column', position:'relative'}}>
-      {T.scanlines && <>
-        <div style={{position:'fixed', inset:0, backgroundImage:`repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.13) 3px,rgba(0,0,0,0.13) 4px)`, pointerEvents:'none', zIndex:50}} />
-        <div style={{position:'fixed', inset:0, backgroundImage:`radial-gradient(${T.border}40 1px, transparent 1px)`, backgroundSize:'18px 18px', pointerEvents:'none', zIndex:1}} />
-      </>}
-      <Header T={T} score={score} sessionLog={sessionLog} sessionSize={cfg.sessionSize} onReset={startPractice} onBack={screen!=='settings'?()=>setScreen('settings'):null} />
-      <div style={{flex:1, display:'flex', flexDirection:'column', alignItems:'center', padding:'0 16px 32px'}}>
-        <div style={{width:'100%', maxWidth:560}}>
-          {screen === 'settings' && <SettingsScreen T={T} cfg={cfg} setCfg={setCfg} onStart={startPractice} />}
-          {screen === 'practice' && q && (
-            <PracticeScreen T={T} q={q} playState={playState} chosen={chosen}
-              onPlay={doPlay} onAnswer={handleAnswer} onNext={handleNext} onReplay={handleReplay} wpm={cfg.wpm} />
-          )}
-          {screen === 'summary' && (
-            <SummaryScreen T={T} sessionLog={sessionLog} score={score}
-              onPlayAgain={startPractice} onSettings={()=>setScreen('settings')} />
-          )}
-        </div>
-      </div>
-      {showTweaks && <TweaksPanel T={T} tweaks={tweaks} setTweak={setTweak} />}
-    </div>
-  );
+  // Apply body background
+  document.body.style.background = t.bg;
 }
 
 // ── HEADER ────────────────────────────────────────────────────────────────────
-function Header({ T, score, sessionLog, sessionSize, onReset, onBack }) {
+function renderHeader(t) {
+  const { score, sessionLog, cfg, screen } = state;
   const acc = score.t > 0 ? Math.round(score.c / score.t * 100) : null;
-  const progress = sessionLog ? sessionLog.length : 0;
-  return (
-    <div style={{background:T.bgCard, borderBottom:`1px solid ${T.border}`, padding:'12px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:20}}>
-      <div style={{display:'flex', alignItems:'center', gap:10}}>
-        {onBack && (
-          <button onClick={onBack} style={{background:'none',border:`1px solid ${T.border}`,cursor:'pointer',color:T.textMuted,fontSize:12,padding:'5px 10px',borderRadius:6,fontFamily:"'Inter',sans-serif",fontWeight:500,letterSpacing:0.5}}>← Settings</button>
-        )}
-        <span style={{fontFamily:T.mono, fontSize:13, fontWeight:700, color:T.accent, letterSpacing:3}}>CW</span>
-        <span style={{fontFamily:T.mono, fontSize:11, color:T.textMuted, letterSpacing:1}}>PRACTICE</span>
-      </div>
-      <div style={{display:'flex', alignItems:'center', gap:12}}>
-        {sessionLog && sessionSize && progress > 0 && (
-          <div style={{display:'flex', alignItems:'center', gap:6}}>
-            <div style={{width:64, height:3, borderRadius:1, background:T.border, overflow:'visible', position:'relative'}}>
-              <div style={{height:'100%', width:`${(progress/sessionSize)*100}%`, background:T.accent, borderRadius:1, transition:'width 0.3s', boxShadow:`0 0 6px ${T.accent}cc, 0 0 12px ${T.accent}55`}} />
-            </div>
-            <span style={{fontFamily:T.mono, fontSize:11, color:T.textMuted}}>{progress}/{sessionSize}</span>
-          </div>
-        )}
-        {score.t > 0 && (
-          <div style={{textAlign:'right'}}>
-            <div style={{fontFamily:T.mono, fontSize:16, fontWeight:700, color:T.text}}>{score.c}/{score.t}</div>
-            <div style={{fontSize:11, color: acc >= 80 ? T.correct : acc >= 60 ? T.accent : T.wrong}}>{acc}%</div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  const progress = sessionLog.length;
+
+  const hdr = el('div', { style:{
+    background:t.bgCard, borderBottom:`1px solid ${t.border}`,
+    padding:'12px 20px', display:'flex', alignItems:'center',
+    justifyContent:'space-between', position:'sticky', top:0, zIndex:20,
+  }});
+
+  const left = el('div', { style:{ display:'flex', alignItems:'center', gap:'10px' }});
+  if (screen !== 'settings') {
+    const backBtn = el('button', { style:{
+      background:'none', border:`1px solid ${t.border}`, color:t.textMuted,
+      fontSize:'12px', padding:'5px 10px', borderRadius:'6px', fontWeight:'500',
+    }}, '← Settings');
+    backBtn.addEventListener('click', () => { goSettings(); });
+    left.appendChild(backBtn);
+  }
+  left.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'13px', fontWeight:'700', color:t.accent, letterSpacing:'3px' }}, 'CW'));
+  left.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted, letterSpacing:'1px' }}, 'PRACTICE'));
+
+  const right = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
+  if (progress > 0 && screen === 'practice') {
+    const progressWrap = el('div', { style:{ display:'flex', alignItems:'center', gap:'6px' }});
+    const bar = el('div', { style:{ width:'64px', height:'3px', borderRadius:'1px', background:t.border, position:'relative' }});
+    bar.appendChild(el('div', { style:{
+      height:'100%', width:`${(progress / cfg.sessionSize) * 100}%`,
+      background:t.accent, borderRadius:'1px', transition:'width 0.3s',
+      boxShadow:`0 0 6px ${t.accent}cc, 0 0 12px ${t.accent}55`,
+    }}));
+    progressWrap.appendChild(bar);
+    progressWrap.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted }}, `${progress}/${cfg.sessionSize}`));
+    right.appendChild(progressWrap);
+  }
+  if (score.t > 0) {
+    const scoreDiv = el('div', { style:{ textAlign:'right' }});
+    scoreDiv.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'16px', fontWeight:'700', color:t.text }}, `${score.c}/${score.t}`));
+    scoreDiv.appendChild(el('div', { style:{
+      fontSize:'11px',
+      color: acc >= 80 ? t.correct : acc >= 60 ? t.accent : t.wrong,
+    }}, `${acc}%`));
+    right.appendChild(scoreDiv);
+  }
+
+  hdr.appendChild(left);
+  hdr.appendChild(right);
+  return hdr;
 }
 
-// ── SETTINGS ──────────────────────────────────────────────────────────────────
-function SettingsScreen({ T, cfg, setCfg, onStart }) {
-  const set = (k,v) => setCfg(s => ({...s,[k]:v}));
-  const lbl = {display:'block', fontSize:11, fontWeight:600, color:T.textMuted, letterSpacing:1.5, textTransform:'uppercase', marginBottom:10};
-  return (
-    <div className="fade-in">
-      <div style={{textAlign:'center', padding:'40px 0 44px'}}>
-        <div style={{fontFamily:T.mono, fontSize:22, color:T.accent, letterSpacing:6, marginBottom:12}}>
-          ·−  −·  ·−·  ·
-        </div>
-        <h1 style={{fontSize:32, fontWeight:700, letterSpacing:-0.5, marginBottom:6}}>CW Practice</h1>
-        <p style={{color:T.textMuted, fontSize:14}}>Morse Code Trainer</p>
-      </div>
+// ── SETTINGS SCREEN ───────────────────────────────────────────────────────────
+function renderSettings(t) {
+  const { cfg, tweaks } = state;
+  const wrap = el('div', { className:'fade-in' });
 
-      {/* Word List */}
-      <div style={{marginBottom:28}}>
-        <label style={lbl}>Word List</label>
-        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
-          {LIST_OPTS.map(o => {
-            const sel = cfg.listKey === o.key;
-            return (
-              <button key={o.key} onClick={()=>set('listKey',o.key)} style={{
-                padding:'10px 12px', border:`2px solid ${sel?T.accent:T.border}`,
-                borderRadius:8, background: sel ? T.accentDim : T.bgCard,
-                color: sel ? T.accent : T.text, cursor:'pointer',
-                fontSize:13, fontWeight: sel?600:400, textAlign:'left',
-                transition:'all 0.12s',
-              }}>{o.label}</button>
-            );
-          })}
-        </div>
-      </div>
+  // Title block
+  const titleBlock = el('div', { style:{ textAlign:'center', padding:'40px 0 44px' }});
+  titleBlock.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'22px', color:t.accent, letterSpacing:'6px', marginBottom:'12px' }}, '·−  −·  ·−·  ·'));
+  titleBlock.appendChild(el('h1', { style:{ fontSize:'32px', fontWeight:'700', letterSpacing:'-0.5px', marginBottom:'6px' }}, 'CW Practice'));
+  titleBlock.appendChild(el('p',  { style:{ color:t.textMuted, fontSize:'14px' }}, 'Morse Code Trainer'));
+  wrap.appendChild(titleBlock);
 
-      {/* WPM */}
-      <div style={{marginBottom:28}}>
-        <label style={lbl}>
-          Character Speed — <span style={{color:T.accent, fontFamily:T.mono}}>{cfg.wpm} WPM</span>
-        </label>
-        <input type="range" min={10} max={65} step={1} value={cfg.wpm}
-          onChange={e=>set('wpm',+e.target.value)}
-          style={{width:'100%', accentColor:T.accent, background:T.border}} />
-        <div style={{display:'flex', justifyContent:'space-between', fontSize:11, color:T.textMuted, marginTop:5}}>
-          <span>10 WPM</span><span>65 WPM</span>
-        </div>
-      </div>
+  // Word List
+  const lblStyle = { display:'block', fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:'10px' };
+  const sec1 = el('div', { style:{ marginBottom:'28px' }});
+  sec1.appendChild(el('label', { style:lblStyle }, 'Word List'));
+  const grid = el('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }});
+  LIST_OPTS.forEach(o => {
+    const sel = cfg.listKey === o.key;
+    const btn = el('button', { style:{
+      padding:'10px 12px', border:`2px solid ${sel ? t.accent : t.border}`,
+      borderRadius:'8px', background: sel ? t.accentDim : t.bgCard,
+      color: sel ? t.accent : t.text, fontSize:'13px',
+      fontWeight: sel ? '600' : '400', textAlign:'left', transition:'all 0.12s',
+    }}, o.label);
+    btn.addEventListener('click', () => { cfg.listKey = o.key; render(); });
+    grid.appendChild(btn);
+  });
+  sec1.appendChild(grid);
+  wrap.appendChild(sec1);
 
-      {/* Farnsworth */}
-      <div style={{marginBottom:36, background:T.bgCard, border:`1px solid ${T.border}`, borderRadius:10, padding:'14px 16px'}}>
-        <div style={{display:'flex', alignItems:'center', gap:12}}>
-          <Toggle on={cfg.farnsworth} onToggle={()=>set('farnsworth',!cfg.farnsworth)} T={T} />
-          <div>
-            <div style={{fontWeight:600, fontSize:14}}>Farnsworth Timing</div>
-            <div style={{fontSize:12, color:T.textMuted, marginTop:2}}>Characters at full speed, extra space between them</div>
-          </div>
-        </div>
-        {cfg.farnsworth && (
-          <div style={{marginTop:16, paddingTop:16, borderTop:`1px solid ${T.border}`}}>
-            <label style={{...lbl, marginBottom:8}}>
-              Spacing Speed — <span style={{color:T.accent, fontFamily:T.mono}}>{cfg.fwpm} WPM</span>
-            </label>
-            <input type="range" min={5} max={cfg.wpm} step={1} value={cfg.fwpm}
-              onChange={e=>set('fwpm',+e.target.value)}
-              style={{width:'100%', accentColor:T.accent, background:T.border}} />
-            <div style={{display:'flex', justifyContent:'space-between', fontSize:11, color:T.textMuted, marginTop:5}}>
-              <span>5 WPM</span><span>{cfg.wpm} WPM</span>
-            </div>
-          </div>
-        )}
-      </div>
+  // Character Speed
+  const sec2 = el('div', { style:{ marginBottom:'28px' }});
+  const wpmLabel = el('label', { style:lblStyle });
+  wpmLabel.innerHTML = `Character Speed — <span style="color:${t.accent};font-family:${t.mono}">${cfg.wpm} WPM</span>`;
+  sec2.appendChild(wpmLabel);
+  const wpmSlider = el('input', { type:'range', min:'10', max:'65', step:'1', value:String(cfg.wpm),
+    style:{ accentColor:t.accent, background:t.border }});
+  wpmSlider.addEventListener('input', () => {
+    cfg.wpm = +wpmSlider.value;
+    if (cfg.fwpm > cfg.wpm) cfg.fwpm = cfg.wpm;
+    render();
+  });
+  sec2.appendChild(wpmSlider);
+  const wpmRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
+  wpmRange.appendChild(el('span', {}, '10 WPM'));
+  wpmRange.appendChild(el('span', {}, '65 WPM'));
+  sec2.appendChild(wpmRange);
+  wrap.appendChild(sec2);
 
-      {/* Session size */}
-      <div style={{marginBottom:28}}>
-        <label style={lbl}>Questions per Session</label>
-        <div style={{display:'flex', gap:8}}>
-          {[10, 20, 30, 50].map(n => {
-            const sel = cfg.sessionSize === n;
-            return (
-              <button key={n} onClick={()=>set('sessionSize',n)} style={{
-                flex:1, padding:'10px 4px', border:`2px solid ${sel?T.accent:T.border}`,
-                borderRadius:8, background: sel ? T.accentDim : T.bgCard,
-                color: sel ? T.accent : T.text, cursor:'pointer',
-                fontSize:14, fontWeight: sel?700:400, fontFamily:T.mono,
-                transition:'all 0.12s',
-              }}>{n}</button>
-            );
-          })}
-        </div>
-      </div>
+  // Farnsworth
+  const sec3 = el('div', { style:{ marginBottom:'36px', background:t.bgCard, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  const fwRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
+  fwRow.appendChild(renderToggle(t, cfg.farnsworth, () => { cfg.farnsworth = !cfg.farnsworth; render(); }));
+  const fwText = el('div', {});
+  fwText.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px' }}, 'Farnsworth Timing'));
+  fwText.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Characters at full speed, extra space between them'));
+  fwRow.appendChild(fwText);
+  sec3.appendChild(fwRow);
+  if (cfg.farnsworth) {
+    const fwExtra = el('div', { style:{ marginTop:'16px', paddingTop:'16px', borderTop:`1px solid ${t.border}` }});
+    const fwLabel = el('label', { style:{ ...lblStyle, marginBottom:'8px' }});
+    fwLabel.innerHTML = `Spacing Speed — <span style="color:${t.accent};font-family:${t.mono}">${cfg.fwpm} WPM</span>`;
+    fwExtra.appendChild(fwLabel);
+    const fwSlider = el('input', { type:'range', min:'5', max:String(cfg.wpm), step:'1', value:String(cfg.fwpm),
+      style:{ accentColor:t.accent, background:t.border }});
+    fwSlider.addEventListener('input', () => { cfg.fwpm = +fwSlider.value; render(); });
+    fwExtra.appendChild(fwSlider);
+    const fwRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
+    fwRange.appendChild(el('span', {}, '5 WPM'));
+    fwRange.appendChild(el('span', {}, `${cfg.wpm} WPM`));
+    fwExtra.appendChild(fwRange);
+    sec3.appendChild(fwExtra);
+  }
+  wrap.appendChild(sec3);
 
-      <button onClick={onStart} style={{
-        width:'100%', padding:'16px', background:T.accent, color:T.accentText,
-        border:'none', borderRadius:10, fontSize:15, fontWeight:700, cursor:'pointer',
-        letterSpacing:2, fontFamily:"'Inter',sans-serif",
-      }}>
-        START PRACTICE
-      </button>
-    </div>
-  );
-}
+  // Session size
+  const sec4 = el('div', { style:{ marginBottom:'28px' }});
+  sec4.appendChild(el('label', { style:lblStyle }, 'Questions per Session'));
+  const sizeRow = el('div', { style:{ display:'flex', gap:'8px' }});
+  [10, 20, 30, 50].forEach(n => {
+    const sel = cfg.sessionSize === n;
+    const btn = el('button', { style:{
+      flex:'1', padding:'10px 4px', border:`2px solid ${sel ? t.accent : t.border}`,
+      borderRadius:'8px', background: sel ? t.accentDim : t.bgCard,
+      color: sel ? t.accent : t.text, fontSize:'14px',
+      fontWeight: sel ? '700' : '400', fontFamily:t.mono, transition:'all 0.12s',
+    }}, String(n));
+    btn.addEventListener('click', () => { cfg.sessionSize = n; render(); });
+    sizeRow.appendChild(btn);
+  });
+  sec4.appendChild(sizeRow);
+  wrap.appendChild(sec4);
 
-// ── SUMMARY SCREEN ────────────────────────────────────────────────────────────
-function SummaryScreen({ T, sessionLog, score, onPlayAgain, onSettings }) {
-  const acc = score.t > 0 ? Math.round(score.c / score.t * 100) : 0;
-  const correct = sessionLog.filter(e => e.correct);
-  const wrong = sessionLog.filter(e => !e.correct);
-  // dedupe wrong words
-  const wrongWords = [...new Set(wrong.map(e => e.word))];
-  const correctWords = [...new Set(correct.map(e => e.word))];
+  // Tone frequency
+  const sec5 = el('div', { style:{ marginBottom:'28px', background:t.bgCard, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  const freqLabel = el('label', { style:lblStyle });
+  freqLabel.innerHTML = `Tone Frequency — <span style="color:${t.accent};font-family:${t.mono}">${tweaks.frequency} Hz</span>`;
+  sec5.appendChild(freqLabel);
+  const freqSlider = el('input', { type:'range', min:'400', max:'800', step:'10', value:String(tweaks.frequency),
+    style:{ accentColor:t.accent, background:t.border }});
+  freqSlider.addEventListener('input', () => {
+    tweaks.frequency = +freqSlider.value; saveTweaks(); render();
+  });
+  sec5.appendChild(freqSlider);
+  const freqRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
+  freqRange.appendChild(el('span', {}, '400 Hz'));
+  freqRange.appendChild(el('span', {}, '800 Hz'));
+  sec5.appendChild(freqRange);
+  wrap.appendChild(sec5);
 
-  const grade = acc >= 90 ? {label:'Excellent', color:T.correct} : acc >= 70 ? {label:'Good', color:T.accent} : {label:'Keep Practicing', color:T.wrong};
+  // Theme picker
+  const sec6 = el('div', { style:{ marginBottom:'36px' }});
+  sec6.appendChild(el('label', { style:lblStyle }, 'Theme'));
+  const themeRow = el('div', { style:{ display:'flex', gap:'8px' }});
+  Object.values(THEMES).forEach(th => {
+    const sel = tweaks.theme === th.id;
+    const btn = el('button', { style:{
+      flex:'1', padding:'10px 4px', borderRadius:'8px',
+      border:`2px solid ${sel ? t.accent : t.border}`,
+      background:th.bg, color:th.text, fontSize:'13px', fontWeight:'600',
+    }}, th.label);
+    btn.addEventListener('click', () => { tweaks.theme = th.id; saveTweaks(); render(); });
+    themeRow.appendChild(btn);
+  });
+  sec6.appendChild(themeRow);
+  wrap.appendChild(sec6);
 
-  return (
-    <div className="fade-in" style={{paddingTop:32}}>
-      {/* Score hero */}
-      <div style={{background:T.bgCard, border:`1px solid ${T.border}`, borderRadius:16, padding:'32px 24px', textAlign:'center', marginBottom:20}}>
-        <div style={{fontSize:13, fontWeight:600, color:T.textMuted, letterSpacing:2, textTransform:'uppercase', marginBottom:12}}>Session Complete</div>
-        <div style={{fontFamily:T.mono, fontSize:56, fontWeight:700, color:T.accent, lineHeight:1}}>{score.c}<span style={{fontSize:28, color:T.textMuted}}>/{score.t}</span></div>
-        <div style={{fontSize:22, fontWeight:700, color:grade.color, marginTop:8}}>{acc}% — {grade.label}</div>
-      </div>
+  // Start button
+  const startBtn = el('button', { style:{
+    width:'100%', padding:'16px', background:t.accent, color:t.accentText,
+    border:'none', borderRadius:'10px', fontSize:'15px', fontWeight:'700',
+    letterSpacing:'2px',
+  }}, 'START PRACTICE');
+  startBtn.addEventListener('click', startPractice);
+  wrap.appendChild(startBtn);
 
-      {/* Two column word list */}
-      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20}}>
-        {/* Correct */}
-        <div style={{background:T.bgCard, border:`1px solid ${T.border}`, borderRadius:12, padding:'16px'}}>
-          <div style={{fontSize:11, fontWeight:700, color:T.correct, letterSpacing:2, textTransform:'uppercase', marginBottom:12}}>✓ Correct ({correctWords.length})</div>
-          <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
-            {correctWords.length === 0 && <span style={{fontSize:12, color:T.textMuted}}>None</span>}
-            {correctWords.map((w,i) => (
-              <span key={i} style={{fontFamily:T.mono, fontSize:12, fontWeight:600, color:T.correct, background:T.correctDim, borderRadius:4, padding:'3px 7px'}}>
-                {w.toUpperCase()}
-              </span>
-            ))}
-          </div>
-        </div>
-        {/* Wrong */}
-        <div style={{background:T.bgCard, border:`1px solid ${T.border}`, borderRadius:12, padding:'16px'}}>
-          <div style={{fontSize:11, fontWeight:700, color:T.wrong, letterSpacing:2, textTransform:'uppercase', marginBottom:12}}>✗ Missed ({wrongWords.length})</div>
-          <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
-            {wrongWords.length === 0 && <span style={{fontSize:12, color:T.textMuted}}>None!</span>}
-            {wrongWords.map((w,i) => (
-              <span key={i} style={{fontFamily:T.mono, fontSize:12, fontWeight:600, color:T.wrong, background:T.wrongDim, borderRadius:4, padding:'3px 7px'}}>
-                {w.toUpperCase()}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div style={{display:'flex', gap:10}}>
-        <button onClick={onSettings} style={{
-          flex:1, padding:'14px', background:'none', border:`2px solid ${T.border}`,
-          borderRadius:10, color:T.text, cursor:'pointer', fontSize:14, fontWeight:600,
-          fontFamily:"'Inter',sans-serif",
-        }}
-          onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent}
-          onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}
-        >
-          ← Settings
-        </button>
-        <button onClick={onPlayAgain} style={{
-          flex:2, padding:'14px', background:T.accent, border:'none',
-          borderRadius:10, color:T.accentText, cursor:'pointer',
-          fontSize:14, fontWeight:700, fontFamily:"'Inter',sans-serif", letterSpacing:1,
-        }}>
-          Play Again →
-        </button>
-      </div>
-    </div>
-  );
+  return wrap;
 }
 
 // ── PRACTICE SCREEN ───────────────────────────────────────────────────────────
-function PracticeScreen({ T, q, playState, chosen, onPlay, onAnswer, onNext, onReplay, wpm }) {
+function renderPractice(t) {
+  const { q, playState, chosen } = state;
   const answered = playState === 'answered';
   const canAnswer = playState === 'ready';
 
-  return (
-    <div className="fade-in">
-      <div style={{paddingTop:28, paddingBottom:20}}>
+  const wrap = el('div', { className:'fade-in', style:{ paddingTop:'28px', paddingBottom:'20px' }});
 
-        {/* Play card */}
-        <div style={{
-          background:T.bgCard, border:`1px solid ${T.border}`, borderRadius: T.scanlines ? 2 : 16,
-          padding:'28px 24px', textAlign:'center', marginBottom:20, position:'relative',
-        }}>
-          {/* Corner brackets for vintage theme */}
-          {T.scanlines && ['tl','tr','bl','br'].map(p => (
-            <div key={p} style={{position:'absolute', width:10, height:10,
-              top:p[0]==='t'?-1:'auto', bottom:p[0]==='b'?-1:'auto',
-              left:p[1]==='l'?-1:'auto', right:p[1]==='r'?-1:'auto',
-              borderTop:   p[0]==='t'?`2px solid ${T.accent}`:'none',
-              borderBottom:p[0]==='b'?`2px solid ${T.accent}`:'none',
-              borderLeft:  p[1]==='l'?`2px solid ${T.accent}`:'none',
-              borderRight: p[1]==='r'?`2px solid ${T.accent}`:'none',
-            }} />
-          ))}
-          {/* Playing state: wave animation */}
-          {playState === 'playing' && (
-            <div style={{display:'flex', alignItems:'center', justifyContent:'center', height:88, margin:'0 auto 16px'}}>
-              <WaveAnim color={T.accent} glow={T.scanlines} />
-            </div>
-          )}
+  // Play card
+  const card = el('div', { style:{
+    background:t.bgCard, border:`1px solid ${t.border}`,
+    borderRadius: t.scanlines ? '2px' : '16px',
+    padding:'28px 24px', textAlign:'center', marginBottom:'20px', position:'relative',
+  }});
 
-          {/* Ready state: prompt only, no button */}
-          {playState === 'ready' && (
-            <div style={{height:88, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px'}}>
-              <div style={{fontSize:15, color:T.textMuted, fontWeight:500}}>Select the word you heard</div>
-            </div>
-          )}
+  // Corner brackets (vintage)
+  if (t.scanlines) {
+    [['t','l'],['t','r'],['b','l'],['b','r']].forEach(([v,h]) => {
+      card.appendChild(el('div', { style:{
+        position:'absolute', width:'10px', height:'10px',
+        top: v==='t' ? '-1px' : 'auto', bottom: v==='b' ? '-1px' : 'auto',
+        left: h==='l' ? '-1px' : 'auto', right: h==='r' ? '-1px' : 'auto',
+        borderTop:    v==='t' ? `2px solid ${t.accent}` : 'none',
+        borderBottom: v==='b' ? `2px solid ${t.accent}` : 'none',
+        borderLeft:   h==='l' ? `2px solid ${t.accent}` : 'none',
+        borderRight:  h==='r' ? `2px solid ${t.accent}` : 'none',
+      }}));
+    });
+  }
 
-          {/* Idle state: play button */}
-          {(playState === 'idle') && (
-            <button onClick={onPlay} style={{
-              width:88, height:88, borderRadius:'50%', background:T.accent,
-              border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
-              margin:'0 auto 16px', transition:'transform 0.15s',
-            }}
-              onMouseEnter={e=>e.currentTarget.style.transform='scale(1.06)'}
-              onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}
-            >
-              <span style={{color:T.accentText, fontSize:26, marginLeft:4}}>▶</span>
-            </button>
-          )}
+  // Play area (88px tall)
+  const playArea = el('div', { style:{ height:'88px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }});
+  if (playState === 'playing') {
+    playArea.appendChild(renderWave(t));
+  } else if (playState === 'ready') {
+    playArea.appendChild(el('div', { style:{ fontSize:'15px', color:t.textMuted, fontWeight:'500' }}, 'Select the word you heard'));
+  } else if (playState === 'idle') {
+    const playBtn = el('button', { style:{
+      width:'88px', height:'88px', borderRadius:'50%', background:t.accent,
+      border:'none', display:'flex', alignItems:'center', justifyContent:'center',
+      fontSize:'26px', transition:'transform 0.15s',
+    }}, '▶');
+    playBtn.style.color = t.accentText;
+    playBtn.addEventListener('mouseenter', () => { playBtn.style.transform = 'scale(1.06)'; });
+    playBtn.addEventListener('mouseleave', () => { playBtn.style.transform = 'scale(1)'; });
+    playBtn.addEventListener('click', doPlay);
+    playArea.appendChild(playBtn);
+  } else if (answered) {
+    // spacer
+    playArea.style.height = '72px';
+  }
+  card.appendChild(playArea);
 
-          {/* Answered state: spacer to keep card height consistent */}
-          {answered && (
-            <div style={{height:72, margin:'0 auto 16px'}} />
-          )}
+  // Status line
+  const statusLine = el('div', { style:{ fontSize:'13px', color:t.textMuted, minHeight:'18px' }});
+  if (playState === 'idle')    statusLine.textContent = 'Loading…';
+  if (playState === 'playing') { statusLine.textContent = 'Listening…'; statusLine.style.color = t.accent; statusLine.style.fontWeight = '500'; }
+  if (answered) {
+    const ok = chosen === q.correct;
+    statusLine.textContent = ok ? '✓ Correct!' : '✗ Incorrect';
+    statusLine.style.color = ok ? t.correct : t.wrong;
+    statusLine.style.fontWeight = '600';
+    statusLine.style.fontSize = '14px';
+  }
+  card.appendChild(statusLine);
 
-          {/* Status */}
-          <div style={{fontSize:13, color:T.textMuted, minHeight:18}}>
-            {playState === 'idle' && 'Loading…'}
-            {playState === 'playing' && <span style={{color:T.accent, fontWeight:500}}>Listening…</span>}
-            {answered && (
-              <span style={{color: chosen === q.correct ? T.correct : T.wrong, fontWeight:600, fontSize:14}}>
-                {chosen === q.correct ? '✓ Correct!' : '✗ Incorrect'}
-              </span>
-            )}
-          </div>
+  // Answered: reveal + buttons
+  if (answered) {
+    const reveal = el('div', { className:'slide-up', style:{ marginTop:'16px', marginBottom:'20px' }});
+    reveal.appendChild(el('div', { style:{
+      fontSize:'28px', fontFamily:t.mono, fontWeight:'700', color:t.correct, letterSpacing:'3px',
+    }}, q.correct.toUpperCase()));
+    reveal.appendChild(el('div', { style:{
+      fontSize:'12px', fontFamily:t.mono, color:t.textMuted, marginTop:'6px', letterSpacing:'2px', wordBreak:'break-all',
+    }}, textToMorse(q.correct)));
 
-          {/* Reveal + action buttons */}
-          {answered && (
-            <div className="slide-up">
-              <div style={{marginTop:16, marginBottom:20}}>
-                <div style={{fontSize:28, fontFamily:T.mono, fontWeight:700, color:T.correct, letterSpacing:3}}>
-                  {q.correct.toUpperCase()}
-                </div>
-                <div style={{fontSize:12, fontFamily:T.mono, color:T.textMuted, marginTop:6, letterSpacing:2, wordBreak:'break-all'}}>
-                  {textToMorse(q.correct)}
-                </div>
-              </div>
-              <div style={{display:'flex', gap:10, marginTop:4}}>
-                <button onClick={onReplay} style={{
-                  flex:1, padding:'12px', background:'none',
-                  border:`2px solid ${T.border}`, borderRadius:10,
-                  color:T.text, cursor:'pointer', fontSize:14, fontWeight:600,
-                  fontFamily:"'Inter',sans-serif", transition:'border-color 0.15s',
-                }}
-                  onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent}
-                  onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}
-                >
-                  ↺ Replay
-                </button>
-                <button onClick={onNext} style={{
-                  flex:2, padding:'12px', background:T.accent, border:'none',
-                  borderRadius:10, color:T.accentText, cursor:'pointer',
-                  fontSize:14, fontWeight:700, fontFamily:"'Inter',sans-serif", letterSpacing:1,
-                }}>
-                  Next →
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+    const btnRow = el('div', { style:{ display:'flex', gap:'10px', marginTop:'4px' }});
+    const replayBtn = el('button', { style:{
+      flex:'1', padding:'12px', background:'none',
+      border:`2px solid ${t.border}`, borderRadius:'10px',
+      color:t.text, fontSize:'14px', fontWeight:'600', transition:'border-color 0.15s',
+    }}, '↺ Replay');
+    replayBtn.addEventListener('mouseenter', () => { replayBtn.style.borderColor = t.accent; });
+    replayBtn.addEventListener('mouseleave', () => { replayBtn.style.borderColor = t.border; });
+    replayBtn.addEventListener('click', doReplay);
+    const nextBtn = el('button', { style:{
+      flex:'2', padding:'12px', background:t.accent, border:'none',
+      borderRadius:'10px', color:t.accentText, fontSize:'14px', fontWeight:'700', letterSpacing:'1px',
+    }}, 'Next →');
+    nextBtn.addEventListener('click', handleNext);
+    btnRow.appendChild(replayBtn);
+    btnRow.appendChild(nextBtn);
+    reveal.appendChild(btnRow);
+    card.appendChild(reveal);
+  }
+  wrap.appendChild(card);
 
-        {/* 6 choices — only shown after audio finishes */}
-        <div style={{
-          display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8,
-          opacity: (playState === 'ready' || playState === 'answered') ? 1 : 0,
-          pointerEvents: (playState === 'ready' || playState === 'answered') ? 'auto' : 'none',
-          transition: 'opacity 0.3s ease',
-        }}>
-          {q.choices.map((ch, i) => {
-            let bg = T.bgCard, border = T.border, color = T.text, fw = 500;
-            if (answered) {
-              if (ch === q.correct) { bg = T.correctDim; border = T.correct; color = T.correct; fw = 700; }
-              else if (ch === chosen) { bg = T.wrongDim; border = T.wrong; color = T.wrong; fw = 700; }
-              else { bg = T.bgCard; color = T.textMuted; border = T.border; }
-            }
-            return (
-              <button key={i}
-                style={{
-                  padding:'12px 8px', border:`2px solid ${border}`, borderRadius: T.scanlines ? 2 : 10,
-                  background:bg, color, cursor: canAnswer ? 'pointer' : 'default',
-                  fontSize:13, fontWeight:fw, fontFamily:T.mono, letterSpacing:2,
-                  textAlign:'center', transition:'all 0.15s',
-                  opacity: (!canAnswer && !answered) ? 0.4 : 1,
-                  boxShadow: (answered && ch === q.correct && T.scanlines) ? `0 0 8px ${T.correct}88` : 'none',
-                }}
-                onMouseEnter={e => { if (canAnswer) e.currentTarget.style.background = T.bgCardHover; }}
-                onMouseLeave={e => { if (canAnswer) e.currentTarget.style.background = bg; }}
-                onClick={() => canAnswer && onAnswer(ch)}
-              >
-                {ch.toUpperCase()}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
+  // Choice grid
+  const grid = el('div', { style:{
+    display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px',
+    opacity: (canAnswer || answered) ? '1' : '0',
+    pointerEvents: (canAnswer || answered) ? 'auto' : 'none',
+    transition:'opacity 0.3s ease',
+  }});
+  q.choices.forEach(ch => {
+    let bg = t.bgCard, border = t.border, color = t.text, fw = '500';
+    if (answered) {
+      if (ch === q.correct)    { bg = t.correctDim; border = t.correct; color = t.correct; fw = '700'; }
+      else if (ch === chosen)  { bg = t.wrongDim;   border = t.wrong;   color = t.wrong;   fw = '700'; }
+      else                     { color = t.textMuted; }
+    }
+    const btn = el('button', { style:{
+      padding:'12px 8px', border:`2px solid ${border}`,
+      borderRadius: t.scanlines ? '2px' : '10px',
+      background:bg, color, fontSize:'13px', fontWeight:fw,
+      fontFamily:t.mono, letterSpacing:'2px', textAlign:'center', transition:'all 0.15s',
+      opacity: (!canAnswer && !answered) ? '0.4' : '1',
+      boxShadow: (answered && ch === q.correct && t.scanlines) ? `0 0 8px ${t.correct}88` : 'none',
+    }}, ch.toUpperCase());
+    if (canAnswer) {
+      btn.addEventListener('mouseenter', () => { btn.style.background = t.bgCardHover; });
+      btn.addEventListener('mouseleave', () => { btn.style.background = bg; });
+      btn.addEventListener('click', () => handleAnswer(ch));
+    }
+    grid.appendChild(btn);
+  });
+  wrap.appendChild(grid);
+  return wrap;
 }
 
-// ── WAVE ANIMATION ────────────────────────────────────────────────────────────
-function WaveAnim({ color, glow }) {
-  return (
-    <div style={{display:'flex', alignItems:'center', gap:3, height:36}}>
-      {['bar1','bar2','bar3','bar4','bar5'].map((cls,i) => (
-        <div key={i} className={cls} style={{
-          width:5, height:30, borderRadius:2, background:color,
-          transformOrigin:'center',
-          boxShadow: glow ? `0 0 7px ${color}cc, 0 0 14px ${color}55` : 'none',
-        }} />
-      ))}
-    </div>
-  );
+// ── SUMMARY SCREEN ────────────────────────────────────────────────────────────
+function renderSummary(t) {
+  const { sessionLog, score } = state;
+  const acc = score.t > 0 ? Math.round(score.c / score.t * 100) : 0;
+  const grade = acc >= 90 ? { label:'Excellent', color:t.correct }
+              : acc >= 70 ? { label:'Good',      color:t.accent  }
+              :             { label:'Keep Practicing', color:t.wrong };
+  const correctWords = [...new Set(sessionLog.filter(e =>  e.correct).map(e => e.word))];
+  const wrongWords   = [...new Set(sessionLog.filter(e => !e.correct).map(e => e.word))];
+
+  const wrap = el('div', { className:'fade-in', style:{ paddingTop:'32px' }});
+
+  // Score hero
+  const hero = el('div', { style:{
+    background:t.bgCard, border:`1px solid ${t.border}`, borderRadius:'16px',
+    padding:'32px 24px', textAlign:'center', marginBottom:'20px',
+  }});
+  hero.appendChild(el('div', { style:{ fontSize:'13px', fontWeight:'600', color:t.textMuted, letterSpacing:'2px', textTransform:'uppercase', marginBottom:'12px' }}, 'Session Complete'));
+  const scoreEl = el('div', { style:{ fontFamily:t.mono, fontSize:'56px', fontWeight:'700', color:t.accent, lineHeight:'1' }});
+  scoreEl.innerHTML = `${score.c}<span style="font-size:28px;color:${t.textMuted}">/${score.t}</span>`;
+  hero.appendChild(scoreEl);
+  hero.appendChild(el('div', { style:{ fontSize:'22px', fontWeight:'700', color:grade.color, marginTop:'8px' }}, `${acc}% — ${grade.label}`));
+  wrap.appendChild(hero);
+
+  // Two-column word list
+  const cols = el('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px', marginBottom:'20px' }});
+  [[correctWords, t.correct, t.correctDim, '✓ Correct'], [wrongWords, t.wrong, t.wrongDim, '✗ Missed']].forEach(([words, color, dim, label]) => {
+    const col = el('div', { style:{ background:t.bgCard, border:`1px solid ${t.border}`, borderRadius:'12px', padding:'16px' }});
+    col.appendChild(el('div', { style:{ fontSize:'11px', fontWeight:'700', color, letterSpacing:'2px', textTransform:'uppercase', marginBottom:'12px' }}, `${label} (${words.length})`));
+    const tags = el('div', { style:{ display:'flex', flexWrap:'wrap', gap:'6px' }});
+    if (words.length === 0) tags.appendChild(el('span', { style:{ fontSize:'12px', color:t.textMuted }}, label.includes('✓') ? 'None' : 'None!'));
+    words.forEach(w => tags.appendChild(el('span', { style:{
+      fontFamily:t.mono, fontSize:'12px', fontWeight:'600', color, background:dim, borderRadius:'4px', padding:'3px 7px',
+    }}, w.toUpperCase())));
+    col.appendChild(tags);
+    cols.appendChild(col);
+  });
+  wrap.appendChild(cols);
+
+  // Action buttons
+  const actions = el('div', { style:{ display:'flex', gap:'10px' }});
+  const settingsBtn = el('button', { style:{
+    flex:'1', padding:'14px', background:'none', border:`2px solid ${t.border}`,
+    borderRadius:'10px', color:t.text, fontSize:'14px', fontWeight:'600',
+  }}, '← Settings');
+  settingsBtn.addEventListener('mouseenter', () => { settingsBtn.style.borderColor = t.accent; });
+  settingsBtn.addEventListener('mouseleave', () => { settingsBtn.style.borderColor = t.border; });
+  settingsBtn.addEventListener('click', goSettings);
+  const againBtn = el('button', { style:{
+    flex:'2', padding:'14px', background:t.accent, border:'none',
+    borderRadius:'10px', color:t.accentText, fontSize:'14px', fontWeight:'700', letterSpacing:'1px',
+  }}, 'Play Again →');
+  againBtn.addEventListener('click', startPractice);
+  actions.appendChild(settingsBtn);
+  actions.appendChild(againBtn);
+  wrap.appendChild(actions);
+  return wrap;
 }
 
-// ── TOGGLE ────────────────────────────────────────────────────────────────────
-function Toggle({ on, onToggle, T }) {
-  return (
-    <button onClick={onToggle} style={{
-      flexShrink:0, width:44, height:26, borderRadius:13,
-      background: on ? T.accent : T.border,
-      border:'none', cursor:'pointer', position:'relative',
-      transition:'background 0.2s',
-    }}>
-      <span style={{
-        position:'absolute', top:3, left: on ? 21 : 3,
-        width:20, height:20, borderRadius:'50%',
-        background: on ? T.accentText : T.text,
-        transition:'left 0.2s',
-        display:'block',
-      }} />
-    </button>
-  );
+// ── WIDGETS ───────────────────────────────────────────────────────────────────
+function renderWave(t) {
+  const wrap = el('div', { style:{ display:'flex', alignItems:'center', gap:'3px', height:'36px' }});
+  ['bar1','bar2','bar3','bar4','bar5'].forEach(cls => {
+    wrap.appendChild(el('div', { className:cls, style:{
+      width:'5px', height:'30px', borderRadius:'2px', background:t.accent,
+      transformOrigin:'center',
+      boxShadow: t.scanlines ? `0 0 7px ${t.accent}cc, 0 0 14px ${t.accent}55` : 'none',
+    }}));
+  });
+  return wrap;
 }
 
-// ── SCANLINES ─────────────────────────────────────────────────────────────────
-function Scanlines() {
-  return (
-    <div style={{
-      position:'fixed', inset:0, pointerEvents:'none', zIndex:100,
-      background:'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px)',
-    }} />
-  );
+function renderToggle(t, on, onClick) {
+  const btn = el('button', { style:{
+    flexShrink:'0', width:'44px', height:'26px', borderRadius:'13px',
+    background: on ? t.accent : t.border, border:'none', position:'relative', transition:'background 0.2s',
+  }});
+  btn.appendChild(el('span', { style:{
+    position:'absolute', top:'3px', left: on ? '21px' : '3px',
+    width:'20px', height:'20px', borderRadius:'50%',
+    background: on ? t.accentText : t.text, transition:'left 0.2s', display:'block',
+  }}));
+  btn.addEventListener('click', onClick);
+  return btn;
 }
 
-// ── TWEAKS PANEL ──────────────────────────────────────────────────────────────
-function TweaksPanel({ T, tweaks, setTweak }) {
-  return (
-    <div style={{
-      position:'fixed', bottom:20, right:20,
-      background:T.bgCard, border:`1px solid ${T.border}`,
-      borderRadius:12, padding:'16px 18px', width:240, zIndex:200,
-      boxShadow:'0 8px 40px rgba(0,0,0,0.4)',
-    }}>
-      <div style={{fontWeight:700, fontSize:12, color:T.accent, letterSpacing:2, textTransform:'uppercase', marginBottom:14}}>
-        Tweaks
-      </div>
-
-      {/* Theme picker */}
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:11, color:T.textMuted, fontWeight:600, letterSpacing:1, textTransform:'uppercase', marginBottom:8}}>Theme</div>
-        <div style={{display:'flex', gap:6}}>
-          {Object.values(THEMES).map(th => (
-            <button key={th.id} onClick={()=>setTweak('theme', th.id)} style={{
-              flex:1, padding:'7px 4px', borderRadius:6,
-              border:`2px solid ${tweaks.theme === th.id ? T.accent : T.border}`,
-              background:th.bg, color:th.text, cursor:'pointer',
-              fontSize:10, fontWeight:600, fontFamily:"'Inter',sans-serif",
-            }}>{th.label}</button>
-          ))}
-        </div>
-      </div>
-
-      {/* Frequency */}
-      <div>
-        <div style={{fontSize:11, color:T.textMuted, fontWeight:600, letterSpacing:1, textTransform:'uppercase', marginBottom:6}}>
-          Tone — <span style={{color:T.accent, fontFamily:T.mono}}>{tweaks.frequency} Hz</span>
-        </div>
-        <input type="range" min={400} max={800} step={10} value={tweaks.frequency}
-          onChange={e=>setTweak('frequency', +e.target.value)}
-          style={{width:'100%', accentColor:T.accent, background:T.border}} />
-        <div style={{display:'flex', justifyContent:'space-between', fontSize:10, color:T.textMuted, marginTop:4}}>
-          <span>400 Hz</span><span>800 Hz</span>
-        </div>
-      </div>
-    </div>
-  );
+// ── ACTIONS ───────────────────────────────────────────────────────────────────
+function goSettings() {
+  clearTimeout(state.autoPlayTimer);
+  state.screen = 'settings';
+  state.playState = 'idle';
+  render();
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+function startPractice() {
+  clearTimeout(state.autoPlayTimer);
+  state.q = makeQuestion(state.cfg.listKey);
+  state.chosen = null;
+  state.screen = 'practice';
+  state.playState = 'idle';
+  state.score = { c:0, t:0 };
+  state.sessionLog = [];
+  render();
+  state.autoPlayTimer = setTimeout(doPlay, 150);
+}
+
+async function doPlay() {
+  if (state.playing) return;
+  state.playing = true;
+  state.playState = 'playing';
+  render();
+  const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
+  await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
+  state.playing = false;
+  if (state.playState === 'playing') { state.playState = 'ready'; render(); }
+}
+
+async function doReplay() {
+  if (state.playing) return;
+  state.playing = true;
+  const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
+  await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
+  state.playing = false;
+}
+
+function handleAnswer(choice) {
+  if (state.playState !== 'ready') return;
+  state.chosen = choice;
+  state.playState = 'answered';
+  const ok = choice === state.q.correct;
+  state.score = { c: state.score.c + (ok ? 1 : 0), t: state.score.t + 1 };
+  state.sessionLog = [...state.sessionLog, { word: state.q.correct, correct: ok }];
+  render();
+
+  const sessionDone = state.sessionLog.length >= state.cfg.sessionSize;
+  if (ok) {
+    setTimeout(() => {
+      if (sessionDone) { state.screen = 'summary'; render(); return; }
+      handleNext();
+    }, 1100);
+  } else {
+    setTimeout(async () => {
+      if (state.playing) return;
+      state.playing = true;
+      const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
+      await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
+      state.playing = false;
+    }, 400);
+  }
+}
+
+function handleNext() {
+  clearTimeout(state.autoPlayTimer);
+  state.q = makeQuestion(state.cfg.listKey);
+  state.playState = 'idle';
+  state.chosen = null;
+  render();
+  state.autoPlayTimer = setTimeout(doPlay, 150);
+}
+
+// ── BOOT ──────────────────────────────────────────────────────────────────────
+render();
 </script>
 </body>
 </html>
