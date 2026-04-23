@@ -194,12 +194,15 @@ function wordSimilarity(a, b) {
   return score;
 }
 
+// Combined pool used for distractors regardless of active session
+const DISTRACTOR_POOL = [...new Set([...WORDS.top2000, ...WORDS.qso])];
+
 function makeQuestion(listKey) {
   const pool = getWordPool(listKey);
   const correct = pool[Math.floor(Math.random() * pool.length)];
 
-  // Score every other word by morse-similarity to the correct answer
-  const ranked = pool
+  // Score from full distractor pool (top2000 + QSO), excluding the correct answer
+  const ranked = DISTRACTOR_POOL
     .filter(w => w !== correct)
     .map(w => ({ w, s: wordSimilarity(correct, w) }))
     .sort((a, b) => b.s - a.s);
@@ -619,6 +622,13 @@ function renderPractice(t) {
   const canAnswer = playState === 'ready';
 
   const wrap = el('div', { className:'fade-in', style:{ paddingTop:'28px', paddingBottom:'20px' }});
+
+  // Session name
+  const sessionLabel = LIST_OPTS.find(o => o.key === state.cfg.listKey)?.label ?? state.cfg.listKey;
+  wrap.appendChild(el('div', { style:{
+    textAlign:'center', fontSize:'12px', fontWeight:'600', color:t.textMuted,
+    letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:'16px',
+  }}, sessionLabel));
 
   // Play card
   const card = el('div', { style:{
