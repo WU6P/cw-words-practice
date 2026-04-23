@@ -703,7 +703,7 @@ function renderPractice(t) {
   wrap.appendChild(headerRow);
 
   // Play card
-  const card = el('div', { style:{
+  const card = el('div', { id:'cw-card', style:{
     background:t.bgCard, border:`1px solid ${t.border}`,
     borderRadius: t.scanlines ? '2px' : '16px',
     padding:'28px 24px', textAlign:'center', marginBottom:'20px', position:'relative',
@@ -756,7 +756,7 @@ function renderPractice(t) {
   card.appendChild(playArea);
 
   // Status line
-  const statusLine = el('div', { 'aria-live':'polite', 'aria-atomic':'true', style:{ fontSize:'13px', color:t.textMuted, minHeight:'18px' }});
+  const statusLine = el('div', { id:'cw-status', 'aria-live':'polite', 'aria-atomic':'true', style:{ fontSize:'13px', color:t.textMuted, minHeight:'18px' }});
   if (playState === 'idle')    statusLine.textContent = 'Loading…';
   if (playState === 'playing') { statusLine.textContent = 'Listening…'; statusLine.style.color = t.accent; statusLine.style.fontWeight = '500'; }
   if (playState === 'ready')   statusLine.textContent = 'Select the word you heard';
@@ -770,7 +770,7 @@ function renderPractice(t) {
 
   // Answered: reveal + buttons
   if (answered) {
-    const reveal = el('div', { className:'slide-up', style:{ marginTop:'16px', marginBottom:'20px' }});
+    const reveal = el('div', { id:'cw-reveal', className:'slide-up', style:{ marginTop:'16px', marginBottom:'20px' }});
     reveal.appendChild(el('div', { style:{
       fontSize:'28px', fontFamily:t.mono, fontWeight:'700', color:t.correct, letterSpacing:'3px',
     }}, q.correct.toUpperCase()));
@@ -800,7 +800,7 @@ function renderPractice(t) {
   wrap.appendChild(card);
 
   // Choice grid
-  const grid = el('div', { style:{
+  const grid = el('div', { id:'cw-choices', style:{
     display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px',
     opacity: (canAnswer || answered) ? '1' : '0',
     pointerEvents: (canAnswer || answered) ? 'auto' : 'none',
@@ -955,25 +955,27 @@ async function startPractice() {
   state.q = makeQuestion(state.cfg.listKey);
   state.chosen = null;
   state.screen = 'practice';
-  state.playState = 'idle';
+  state.playState = 'playing';
   state.score = { c:0, t:0 };
   state.sessionLog = [];
   render();
-  state.autoPlayTimer = setTimeout(doPlay, 150);
+  doPlay();
 }
 
 async function doPlay() {
   if (state.playing) return;
   state.playing = true;
-  state.playState = 'playing';
-  render();
+  if (state.playState !== 'playing') {
+    state.playState = 'playing';
+    render();
+  }
   const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
   try {
     await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
   } finally {
     state.playing = false;
   }
-  if (state.playState === 'playing') { state.playState = 'ready'; render(); }
+  if (state.playState === 'playing') { state.playState = 'ready'; transitionToReady(); }
 }
 
 function _showWave() {
@@ -981,6 +983,51 @@ function _showWave() {
   if (!pa) return;
   pa.innerHTML = '';
   pa.appendChild(renderWave(T()));
+}
+
+function makeWrongButtons(t) {
+  const row = el('div', { style:{ display:'flex', gap:'10px', width:'100%' }});
+  const rb = el('button', { style:{
+    flex:'1', padding:'12px', background:'none', border:`2px solid ${t.border}`,
+    borderRadius:'10px', color:t.text, fontSize:'14px', fontWeight:'600', cursor:'pointer',
+  }}, '↺ Replay');
+  rb.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
+  const nb = el('button', { id:'next-btn', style:{
+    flex:'2', padding:'12px', background:t.accent, border:'none',
+    borderRadius:'10px', color:t.accentText, fontSize:'14px', fontWeight:'700', cursor:'pointer',
+  }}, 'Next →');
+  nb.addEventListener('click', e => { e.stopPropagation(); handleNext(); });
+  row.appendChild(rb);
+  row.appendChild(nb);
+  return row;
+}
+
+function refreshHeader() {
+  const hdr = document.querySelector('header');
+  if (hdr) hdr.replaceWith(renderHeader(T()));
+}
+
+function transitionToAnswered(choice) {
+  const t = T(), q = state.q, ok = choice === q.correct;
+  refreshHeader();
+  const pa = document.getElementById('cw-play-area');
+  if (pa) {
+    pa.style.height = '72px'; pa.innerHTML = '';
+    if (!ok) pa.appendChild(makeWrongButtons(t));
+  }
+  const s = document.getElementById('cw-status');
+  if (s) {
+    if (ok) { s.textContent = '✓ Correct!'; s.style.color = t.correct; s.style.fontWeight = '700'; s.style.fontSize = '18px'; }
+    else { s.textContent = ''; }
+  }
+  const g = document.getElementById('cw-choices');
+  if (g) Array.from(g.querySelectorAll('button')).forEach(btn => {
+    const w = btn.textContent.toLowerCase().trim();
+    if (w === q.correct)   { btn.style.background = t.correctDim; btn.style.borderColor = t.correct; btn.style.color = t.correct; if (t.scanlines) btn.style.boxShadow = `0 0 8px ${t.correct}88`; }
+    else if (w === choice) { btn.style.background = t.wrongDim;   btn.style.borderColor = t.wrong;   btn.style.color = t.wrong; }
+    else                   { btn.style.color = t.textMuted; }
+    btn.onclick = () => doPlayWord(w);
+  });
 }
 
 function _hideWave() {
@@ -996,8 +1043,9 @@ function _hideWave() {
     }}, '↺');
     btn.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
     pa.appendChild(btn);
+  } else if (state.playState === 'answered' && state.chosen !== state.q.correct) {
+    pa.appendChild(makeWrongButtons(t));
   }
-  // answered state: empty div is a spacer — no content needed
 }
 
 async function doPlayWord(word) {
@@ -1027,6 +1075,68 @@ async function doPlayWord(word) {
   }
 }
 
+function transitionToReady() {
+  const t = T();
+  const pa = document.getElementById('cw-play-area');
+  if (pa) {
+    pa.style.height = '88px';
+    pa.innerHTML = '';
+    const replayCircle = el('button', { 'aria-label':'Replay Morse code', style:{
+      width:'72px', height:'72px', borderRadius:'50%', background:'none',
+      border:`2px solid ${t.border}`, display:'flex', alignItems:'center', justifyContent:'center',
+      fontSize:'28px', color:t.textMuted, transition:'all 0.15s', cursor:'pointer',
+    }}, '↺');
+    replayCircle.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
+    pa.appendChild(replayCircle);
+  }
+  const statusEl = document.getElementById('cw-status');
+  if (statusEl) { statusEl.textContent = 'Select the word you heard'; statusEl.style.color = t.textMuted; statusEl.style.fontWeight = ''; statusEl.style.fontSize = '13px'; }
+  const gridEl = document.getElementById('cw-choices');
+  if (gridEl) {
+    gridEl.style.opacity = '1';
+    gridEl.style.pointerEvents = 'auto';
+    Array.from(gridEl.querySelectorAll('button')).forEach(btn => {
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+      btn.classList.add('btn-choice-hover');
+      const word = btn.textContent.toLowerCase().trim();
+      btn.addEventListener('click', () => handleAnswer(word));
+    });
+  }
+  const cardEl = document.getElementById('cw-card');
+  if (cardEl) { cardEl.style.cursor = 'pointer'; cardEl.onclick = doReplay; }
+}
+
+function transitionToPlaying() {
+  const t = T();
+  const pa = document.getElementById('cw-play-area');
+  if (pa) { pa.style.height = '88px'; pa.innerHTML = ''; pa.appendChild(renderWave(t)); }
+  const statusEl = document.getElementById('cw-status');
+  if (statusEl) { statusEl.textContent = 'Listening…'; statusEl.style.color = t.accent; statusEl.style.fontWeight = '500'; statusEl.style.fontSize = '13px'; }
+  const revealEl = document.getElementById('cw-reveal');
+  if (revealEl) revealEl.remove();
+  const gridEl = document.getElementById('cw-choices');
+  if (gridEl) {
+    gridEl.style.opacity = '0';
+    gridEl.style.pointerEvents = 'none';
+    gridEl.innerHTML = '';
+    state.q.choices.forEach((ch, idx) => {
+      const btn = el('button', {
+        'aria-label': `Choice ${idx + 1}: ${ch}`,
+        style:{
+          padding:'12px 8px', border:`2px solid ${t.border}`,
+          borderRadius: t.scanlines ? '2px' : '10px',
+          background:t.bgCard, color:t.text, fontSize:'15px', fontWeight:'700',
+          fontFamily:t.mono, letterSpacing:'2px', textAlign:'center', transition:'all 0.15s',
+          opacity:'0.4', cursor:'default',
+        }}, ch.toUpperCase());
+      gridEl.appendChild(btn);
+    });
+  }
+  const cardEl = document.getElementById('cw-card');
+  if (cardEl) cardEl.style.cursor = 'default';
+}
+
 function doReplay() { return doPlayWord(state.q.correct); }
 
 function handleAnswer(choice) {
@@ -1036,7 +1146,7 @@ function handleAnswer(choice) {
   const ok = choice === state.q.correct;
   state.score = { c: state.score.c + (ok ? 1 : 0), t: state.score.t + 1 };
   state.sessionLog = [...state.sessionLog, { word: state.q.correct, correct: ok }];
-  render();
+  transitionToAnswered(choice);
 
   const sessionDone = state.sessionLog.length >= state.cfg.sessionSize;
   if (ok) {
@@ -1052,10 +1162,16 @@ function handleAnswer(choice) {
 function handleNext() {
   clearTimeout(state.autoPlayTimer);
   state.q = makeQuestion(state.cfg.listKey);
-  state.playState = 'idle';
   state.chosen = null;
-  render();
-  state.autoPlayTimer = setTimeout(doPlay, 150);
+  if (state.playing) {
+    // Replay is in progress — set idle so doPlayWord picks it up after audio
+    state.playState = 'idle';
+    render();
+    return;
+  }
+  state.playState = 'playing';
+  transitionToPlaying();  // Targeted DOM swap — no full page flash
+  doPlay();
 }
 
 // ── KEYBOARD SHORTCUTS (S5) ───────────────────────────────────────────────────
