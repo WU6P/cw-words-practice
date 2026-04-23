@@ -205,7 +205,7 @@ function makeQuestion(listKey) {
     .sort((a, b) => b.s - a.s);
 
   // Pick 5 randomly from the top-20 most similar (gives variety while staying tricky)
-  const pool5 = ranked.slice(0, Math.min(20, ranked.length));
+  const pool5 = ranked.slice(0, Math.min(10, ranked.length));
   const distractors = [];
   while (distractors.length < 5 && pool5.length > 0) {
     const i = Math.floor(Math.random() * pool5.length);
