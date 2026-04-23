@@ -177,17 +177,44 @@ const LIST_OPTS = [
 
 function getWordPool(key) { return WORDS[key] || WORDS.top100; }
 
+// ── DISTRACTOR SIMILARITY ─────────────────────────────────────────────────────
+// Confusable morse character pairs (bidirectional)
+const SIMILAR_PAIRS = new Set([
+  'DB','BD','SH','HS','SI','IS','RK','KR','XP','PX','LF','FL','ND','DN','UV','VU','UA','AU'
+]);
+
+function wordSimilarity(a, b) {
+  const au = a.toUpperCase(), bu = b.toUpperCase();
+  let score = -Math.abs(au.length - bu.length) * 4;  // penalise length mismatch
+  const min = Math.min(au.length, bu.length);
+  for (let i = 0; i < min; i++) {
+    if (au[i] === bu[i]) score += 3;
+    else if (SIMILAR_PAIRS.has(au[i] + bu[i])) score += 2;
+  }
+  return score;
+}
+
 function makeQuestion(listKey) {
   const pool = getWordPool(listKey);
   const correct = pool[Math.floor(Math.random() * pool.length)];
-  let others = pool.filter(w => w !== correct);
+
+  // Score every other word by morse-similarity to the correct answer
+  const ranked = pool
+    .filter(w => w !== correct)
+    .map(w => ({ w, s: wordSimilarity(correct, w) }))
+    .sort((a, b) => b.s - a.s);
+
+  // Pick 5 randomly from the top-20 most similar (gives variety while staying tricky)
+  const pool5 = ranked.slice(0, Math.min(20, ranked.length));
   const distractors = [];
-  while (distractors.length < 5 && others.length > 0) {
-    const i = Math.floor(Math.random() * others.length);
-    distractors.push(others[i]);
-    others.splice(i, 1);
+  while (distractors.length < 5 && pool5.length > 0) {
+    const i = Math.floor(Math.random() * pool5.length);
+    distractors.push(pool5.splice(i, 1)[0].w);
   }
-  while (distractors.length < 5) distractors.push(pool[Math.floor(Math.random() * pool.length)]);
+  // Fallback if pool was tiny
+  let fi = 0;
+  while (distractors.length < 5) distractors.push(ranked[fi++]?.w ?? correct);
+
   return { correct, choices: [correct, ...distractors].sort(() => Math.random() - 0.5) };
 }
 
