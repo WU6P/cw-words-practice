@@ -329,7 +329,7 @@ function renderHeader(t) {
     const backBtn = el('button', { style:{
       background:'none', border:`1px solid ${t.border}`, color:t.textMuted,
       fontSize:'12px', padding:'5px 10px', borderRadius:'6px', fontWeight:'500',
-    }}, '← Settings');
+    }}, '← Home');
     backBtn.addEventListener('click', () => { goSettings(); });
     left.appendChild(backBtn);
   }
@@ -407,7 +407,7 @@ function renderSettings(t) {
     if (cfg.fwpm > cfg.wpm) cfg.fwpm = cfg.wpm;
     render();
   });
-  sec2.appendChild(wpmSlider);
+  sec2.appendChild(wrapSliderBubble(t, wpmSlider, 10, 65, v => v + ' WPM'));
   const wpmRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
   wpmRange.appendChild(el('span', {}, '10 WPM'));
   wpmRange.appendChild(el('span', {}, '65 WPM'));
@@ -532,7 +532,7 @@ function renderSettingsModal(t) {
   freqSlider.addEventListener('input', () => {
     tweaks.frequency = +freqSlider.value; saveTweaks(); render();
   });
-  sec5.appendChild(freqSlider);
+  sec5.appendChild(wrapSliderBubble(t, freqSlider, 400, 800, v => v + ' Hz'));
   const freqRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
   freqRange.appendChild(el('span', {}, '400 Hz'));
   freqRange.appendChild(el('span', {}, '800 Hz'));
@@ -743,7 +743,7 @@ function renderSummary(t) {
   const settingsBtn = el('button', { style:{
     flex:'1', padding:'14px', background:'none', border:`2px solid ${t.border}`,
     borderRadius:'10px', color:t.text, fontSize:'14px', fontWeight:'600',
-  }}, '← Settings');
+  }}, '← Home');
   settingsBtn.addEventListener('mouseenter', () => { settingsBtn.style.borderColor = t.accent; });
   settingsBtn.addEventListener('mouseleave', () => { settingsBtn.style.borderColor = t.border; });
   settingsBtn.addEventListener('click', goSettings);
@@ -756,6 +756,27 @@ function renderSummary(t) {
   actions.appendChild(againBtn);
   wrap.appendChild(actions);
   return wrap;
+}
+
+// ── SLIDER BUBBLE ────────────────────────────────────────────────────────────
+function wrapSliderBubble(t, sliderEl, min, max, formatFn) {
+  const wrapper = el('div', { style:{ position:'relative', paddingTop:'24px' }});
+  const bubble = el('div', { style:{
+    position:'absolute', top:'0', transform:'translateX(-50%)',
+    background:t.accent, color:t.accentText,
+    fontSize:'10px', fontWeight:'700', fontFamily:t.mono,
+    padding:'2px 6px', borderRadius:'4px', pointerEvents:'none', whiteSpace:'nowrap',
+  }});
+  function update() {
+    const pct = (sliderEl.value - min) / (max - min);
+    bubble.textContent = formatFn(+sliderEl.value);
+    bubble.style.left = `calc(${pct * 100}% + ${9 - pct * 18}px)`;
+  }
+  update();
+  sliderEl.addEventListener('input', update);
+  wrapper.appendChild(bubble);
+  wrapper.appendChild(sliderEl);
+  return wrapper;
 }
 
 // ── WIDGETS ───────────────────────────────────────────────────────────────────
