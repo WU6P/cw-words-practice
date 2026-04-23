@@ -49,16 +49,45 @@ const MORSE = {
   ':':'---...', ';':'-.-.-.', '=':'-...-',  '+':'.-.-.',
   '-':'-....-', '_':'..--.-', '"':'.-..-.', '$':'...-..-',
   '@':'.--.-.',
-  // Prosigns (procedural signals)
+  // Prosigns via single-char shortcuts
   '<':'...-.-',  // SK / VA — end of work
   '>':'-...-.-', // BK — break
   '!':'...-.',   // SN — understood
   '^':'-.-.-',   // KA — starting signal
   '~':'.-.-..',  // AL — paragraph
+  // Prosigns via [XX] notation (multi-letter keys)
+  AR:'.-.-.',   // AR — end of message
+  SK:'...-.-',  // SK — end of work
+  BT:'-...-',   // BT — paragraph / section break
+  KN:'-.--.',   // KN — go ahead (specific station only)
+  AS:'.-...',   // AS — wait
+  BK:'-...-.-', // BK — break
+  KA:'-.-.-',   // KA — starting signal
 };
 
+// Tokenize text into an array of lookup keys, honouring [PROSIGN] notation.
+// e.g. "CQ [AR]" → ['C','Q',' ','[AR]'] where '[AR]' resolves via MORSE['AR']
+function tokenize(text) {
+  const tokens = [];
+  const upper = text.toUpperCase();
+  let i = 0;
+  while (i < upper.length) {
+    if (upper[i] === '[') {
+      const end = upper.indexOf(']', i + 1);
+      if (end !== -1) {
+        tokens.push(upper.slice(i + 1, end)); // e.g. 'AR'
+        i = end + 1;
+        continue;
+      }
+    }
+    tokens.push(upper[i]);
+    i++;
+  }
+  return tokens;
+}
+
 function textToMorse(text) {
-  return text.toUpperCase().split('').map(c => MORSE[c] || '').filter(Boolean).join(' ');
+  return tokenize(text).map(c => MORSE[c] || '').filter(Boolean).join(' ');
 }
 
 // ── AUDIO ENGINE ─────────────────────────────────────────────────────────────
@@ -80,10 +109,11 @@ function playMorseAudio(text, charWpm, effectiveWpm, frequency) {
     const gapUnit = Math.max(dit, (totalWordTime - charUnitsTime) / 19);
 
     let t = ctx.currentTime + 0.08;
-    const words = text.toUpperCase().split(' ');
+    // Split on spaces to get words, then tokenize each word for [PROSIGN] support
+    const words = text.trim().split(/\s+/);
 
     words.forEach((word, wi) => {
-      [...word].forEach((char) => {
+      tokenize(word).forEach((char) => {
         const code = MORSE[char];
         if (!code) return;
         [...code].forEach(sym => {
