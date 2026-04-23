@@ -11,7 +11,7 @@ html, body { height: 100%; }
 body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; overflow-x: hidden; }
 
 input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; outline: none; cursor: pointer; width: 100%; }
-input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 22px; border-radius: 3px; cursor: pointer; }
 
 button { cursor: pointer; font-family: inherit; }
 
@@ -334,7 +334,7 @@ function renderHeader(t) {
     left.appendChild(backBtn);
   }
   left.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'13px', fontWeight:'700', color:t.accent, letterSpacing:'3px' }}, 'CW'));
-  left.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted, letterSpacing:'1px' }}, 'PRACTICE'));
+  left.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted, letterSpacing:'1px' }}, 'WORDS PRACTICE'));
 
   const right = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
   if (progress > 0 && screen === 'practice') {
@@ -371,7 +371,7 @@ function renderSettings(t) {
 
   // Title block
   const titleBlock = el('div', { style:{ textAlign:'center', padding:'40px 0 44px' }});
-  titleBlock.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'22px', color:t.accent, letterSpacing:'6px', marginBottom:'12px' }}, '.-- --- .-. -.. ...'));
+  titleBlock.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'18px', color:t.accent, letterSpacing:'6px', marginBottom:'12px' }}, '.-- --- .-. -.. ...'));
   titleBlock.appendChild(el('h1', { style:{ fontSize:'32px', fontWeight:'700', letterSpacing:'-0.5px', marginBottom:'6px' }}, 'Words Practice'));
   titleBlock.appendChild(el('p',  { style:{ color:t.textMuted, fontSize:'14px' }}, 'Morse Code Trainer'));
   wrap.appendChild(titleBlock);
@@ -407,7 +407,7 @@ function renderSettings(t) {
     if (cfg.fwpm > cfg.wpm) cfg.fwpm = cfg.wpm;
     render();
   });
-  sec2.appendChild(wrapSliderBubble(t, wpmSlider, 10, 65, v => v + ' WPM'));
+  sec2.appendChild(wpmSlider);
   const wpmRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
   wpmRange.appendChild(el('span', {}, '10 WPM'));
   wpmRange.appendChild(el('span', {}, '65 WPM'));
@@ -532,7 +532,7 @@ function renderSettingsModal(t) {
   freqSlider.addEventListener('input', () => {
     tweaks.frequency = +freqSlider.value; saveTweaks(); render();
   });
-  sec5.appendChild(wrapSliderBubble(t, freqSlider, 400, 800, v => v + ' Hz'));
+  sec5.appendChild(freqSlider);
   const freqRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
   freqRange.appendChild(el('span', {}, '400 Hz'));
   freqRange.appendChild(el('span', {}, '800 Hz'));
@@ -756,27 +756,6 @@ function renderSummary(t) {
   actions.appendChild(againBtn);
   wrap.appendChild(actions);
   return wrap;
-}
-
-// ── SLIDER BUBBLE ────────────────────────────────────────────────────────────
-function wrapSliderBubble(t, sliderEl, min, max, formatFn) {
-  const wrapper = el('div', { style:{ position:'relative', paddingTop:'24px' }});
-  const bubble = el('div', { style:{
-    position:'absolute', top:'0', transform:'translateX(-50%)',
-    background:t.accent, color:t.accentText,
-    fontSize:'10px', fontWeight:'700', fontFamily:t.mono,
-    padding:'2px 6px', borderRadius:'4px', pointerEvents:'none', whiteSpace:'nowrap',
-  }});
-  function update() {
-    const pct = (sliderEl.value - min) / (max - min);
-    bubble.textContent = formatFn(+sliderEl.value);
-    bubble.style.left = `calc(${pct * 100}% + ${9 - pct * 18}px)`;
-  }
-  update();
-  sliderEl.addEventListener('input', update);
-  wrapper.appendChild(bubble);
-  wrapper.appendChild(sliderEl);
-  return wrapper;
 }
 
 // ── WIDGETS ───────────────────────────────────────────────────────────────────
