@@ -168,23 +168,10 @@ const WORDS = {
   top1000: [...new Set([...W500, ...W501_750, ...W751_1000])],
   top1500: [...new Set([...W500, ...W501_750, ...W751_1000, ...W1001_1250, ...W1251_1500])],
   top2000: [...new Set([...W500, ...W501_750, ...W751_1000, ...W1001_1250, ...W1251_1500, ...W1501_1750, ...W1751_2000])],
-  qso: 'CQ DE RST QTH QRM QRN QSB QRZ 73 88 PSE TU DX OM YL ANT RIG PWR AGN NR BK AR SK CW SSB FB HW QSL QRO QRP QRX QSY GE GA GM ES WX BCNU CUL HI UR NW LOG TEST'.split(' '),
-  letters: 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z'.split(' '),
-  numbers: '0 1 2 3 4 5 6 7 8 9'.split(' '),
-  mixed: 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z 0 1 2 3 4 5 6 7 8 9'.split(' '),
+  qso: '.,/,359,479,489,559,579,589,599,5NN,73,88,[AR],[BT],[KN],[SK],?,A,ABT,AGE,AGN,ALL,AND,ANT,ARE,AS,AT,BCNU,BE,BEAM,BEEN,BK,BTU,BURO,BUT,BY,CAN,CFM,COLD,CPI,CPY,CQ,CU,CUL,CW,DE,DID,DIPOLE,DO,DONT,DR,DX,EFHW,EL,ES,FB,FER,FROM,FT,GA,GB,GD,GE,GL,GM,GN,GUD,HAD,HAS,HAVE,HE,HI HI,HIS,HOT,HOUR,HPE,HR,HV,HW,HW?,IF,IN,INFO,IS,IT,ITS,K,KEY,KNOW,LIKE,LONG,LOOP,MANY,MNI,MORE,MY,NAME,NO,NOT,NR,NW,OCF,OF,OK,OM,ON,ONE,OP,OR,OUT,PLS,PSE,PWR,QRL,QRL?,QRM,QRN,QRO,QRP,QRQ,QRS,QRT,QRU,QRX,QRZ,QRZ?,QSB,QSL,QSO,QSY,QTH,R,RIG,RPRT,RPT,RR,RST,RX,SHE,SIG,SO,SOME,SRI,SSB,SWR,TEMP,TEST,THAT,THE,THEIR,THEM,THERE,THEY,THIS,TKS,TNX,TO,TU,TX,UP,UR,VERT,VY,WAS,WATT,WE,WELL,WERE,WHAT,WHEN,WILL,WIRE,WITH,WUD,WX,XYL,YAGI,YL,YOU,YOUR'.split(','),
 };
 
-function genCallsign() {
-  const pre = ['W','K','N','AA','AB','WA','KA','VE3','VE7','G','DL','JA','F6','I2','SP','UA'][Math.floor(Math.random()*16)];
-  const n = Math.floor(Math.random()*10);
-  const L = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const len = 2 + Math.floor(Math.random()*2);
-  const suf = Array.from({length:len},()=>L[Math.floor(Math.random()*26)]).join('');
-  return pre + n + suf;
-}
-
 function getWordPool(key) {
-  if (key === 'callsigns') return Array.from({length:80}, genCallsign);
   return WORDS[key] || WORDS.top100;
 }
 
@@ -253,10 +240,6 @@ const LIST_OPTS = [
   {key:'top1500',     label:'Top 1500 Words'},
   {key:'top2000',     label:'Top 2000 Words'},
   {key:'qso',        label:'QSO Phrases'},
-  {key:'callsigns',  label:'Callsigns'},
-  {key:'letters',    label:'Letters A–Z'},
-  {key:'numbers',    label:'Numbers 0–9'},
-  {key:'mixed',      label:'Mixed (A–Z + 0–9)'},
 ];
 
 // ── TWEAK DEFAULTS ────────────────────────────────────────────────────────────
