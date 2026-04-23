@@ -785,9 +785,11 @@ function renderPractice(t) {
       color:t.text, fontSize:'14px', fontWeight:'600', transition:'border-color 0.15s',
     }}, '↺ Replay');
     replayBtn.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
-    const nextBtn = el('button', { style:{
-      flex:'2', padding:'12px', background:t.accent, border:'none',
-      borderRadius:'10px', color:t.accentText, fontSize:'14px', fontWeight:'700', letterSpacing:'1px',
+    const nextDisabled = state.playing;
+    const nextBtn = el('button', { id:'next-btn', disabled: nextDisabled, style:{
+      flex:'2', padding:'12px', background: nextDisabled ? t.border : t.accent, border:'none',
+      borderRadius:'10px', color: nextDisabled ? t.textMuted : t.accentText, fontSize:'14px', fontWeight:'700', letterSpacing:'1px',
+      cursor: nextDisabled ? 'not-allowed' : 'pointer', transition:'background 0.15s, color 0.15s',
     }}, 'Next →');
     nextBtn.addEventListener('click', e => { e.stopPropagation(); handleNext(); });
     btnRow.appendChild(replayBtn);
@@ -831,18 +833,6 @@ function renderPractice(t) {
     grid.appendChild(btn);
   });
   wrap.appendChild(grid);
-
-  if (canAnswer) {
-    const replayRow = el('div', { style:{ textAlign:'center', marginTop:'10px' }});
-    const replaySmall = el('button', { className:'btn-border-hover', 'aria-label':'Replay Morse code', style:{
-      padding:'8px 24px', background:'none', border:`1px solid ${t.border}`,
-      borderRadius:'8px', color:t.textMuted, fontSize:'13px', fontWeight:'500',
-      transition:'border-color 0.15s', cursor:'pointer',
-    }}, '↺ Replay');
-    replaySmall.addEventListener('click', doReplay);
-    replayRow.appendChild(replaySmall);
-    wrap.appendChild(replayRow);
-  }
 
   return wrap;
 }
@@ -1015,6 +1005,10 @@ async function doPlayWord(word) {
   state.playing = true;
   state.replaying = true;
   _showWave();
+  // Disable Next surgically — it may already be in the DOM as enabled
+  const t0 = T();
+  const nb0 = document.getElementById('next-btn');
+  if (nb0) { nb0.disabled = true; nb0.style.background = t0.border; nb0.style.color = t0.textMuted; nb0.style.cursor = 'not-allowed'; }
   const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
   try {
     await playMorseAudio(word, state.cfg.wpm, fwpm, state.tweaks.frequency);
@@ -1022,7 +1016,15 @@ async function doPlayWord(word) {
     state.playing = false;
     state.replaying = false;
   }
-  _hideWave();
+  if (state.playState === 'answered' || state.playState === 'ready') {
+    // Still on the same question — restore wave area and re-enable Next
+    _hideWave();
+    const nb = document.getElementById('next-btn');
+    if (nb) { nb.disabled = false; nb.style.background = T().accent; nb.style.color = T().accentText; nb.style.cursor = 'pointer'; }
+  } else if (state.playState === 'idle') {
+    // handleNext() fired while audio was playing; auto-play was skipped — retry it now
+    doPlay();
+  }
 }
 
 function doReplay() { return doPlayWord(state.q.correct); }
@@ -1064,7 +1066,7 @@ document.addEventListener('keydown', e => {
 
   const key = e.key;
   if (state.playState === 'answered') {
-    if (key === 'Enter')                        { e.preventDefault(); handleNext(); return; }
+    if (key === 'Enter' && !state.playing)      { e.preventDefault(); handleNext(); return; }
     if (key === ' ' || key.toLowerCase() === 'r') { e.preventDefault(); doReplay(); return; }
   }
   if (state.playState === 'idle' || state.playState === 'ready') {
