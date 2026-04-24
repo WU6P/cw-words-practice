@@ -326,8 +326,8 @@ const state = {
     sessionSize:    _saved.sessionSize    ?? 20,
     listenMode:     _saved.listenMode     ?? false,
     listenDuration: _saved.listenDuration ?? 1800,
-    listenRepeat:   _saved.listenRepeat   ?? 2,
-    listenDelay:    _saved.listenDelay    ?? 1,
+    listenRepeat:   _saved.listenRepeat   ?? 4,
+    listenDelay:    _saved.listenDelay    ?? 2,
   },
   settingsOpen: false,
   q: null,
@@ -377,6 +377,25 @@ function fmtDur(s) {
 }
 function durFromPos(p) { return Math.round(60 * Math.pow(720, p / 100)); }
 function posFromDur(s) { return Math.round(100 * Math.log(s / 60) / Math.log(720)); }
+function playListenBeep(charWpm, frequency) {
+  return new Promise(resolve => {
+    const ctx = getCtx();
+    const dit = 1.2 / charWpm;
+    const t = ctx.currentTime + 0.05;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = frequency + 100;
+    osc.type = 'sine';
+    const ramp = Math.min(0.006, dit * 0.15);
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.21, t + ramp);
+    gain.gain.setValueAtTime(0.21, t + dit - ramp);
+    gain.gain.linearRampToValueAtTime(0, t + dit);
+    osc.start(t); osc.stop(t + dit + 0.01);
+    setTimeout(resolve, (t - ctx.currentTime + dit + 0.02) * 1000 + 80);
+  });
+}
 function listenSleep(ms, ls) {
   return new Promise(resolve => {
     const id = setTimeout(resolve, Math.max(0, ms));
@@ -559,6 +578,20 @@ function renderSettings(t) {
   sec2.appendChild(wpmRange);
   wrap.appendChild(sec2);
 
+  // Listen Only quick toggle
+  const listenRow = el('div', { style:{
+    display:'flex', alignItems:'center', justifyContent:'space-between',
+    padding:'12px 16px', marginBottom:'16px',
+    background:t.bgCard, border:`1px solid ${cfg.listenMode ? t.accent : t.border}`,
+    borderRadius:'10px', transition:'border-color 0.15s',
+  }});
+  const listenRowLeft = el('div', {});
+  listenRowLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, 'Listen Only'));
+  listenRowLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Auto-play without testing'));
+  listenRow.appendChild(listenRowLeft);
+  listenRow.appendChild(renderToggle(t, cfg.listenMode, () => { cfg.listenMode = !cfg.listenMode; saveTweaks(); render(); }));
+  wrap.appendChild(listenRow);
+
   // Settings sub-window button
   const settingsRow = el('div', { style:{ marginBottom:'28px' }});
   const settingsToggleBtn = el('button', { className:'btn-border-hover', 'aria-haspopup':'dialog', 'aria-expanded': state.settingsOpen ? 'true' : 'false', style:{
@@ -569,7 +602,7 @@ function renderSettings(t) {
     transition:'border-color 0.15s',
   }});
   settingsToggleBtn.appendChild(el('span', {}, '⚙ More Settings'));
-  settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'12px' }}, 'Tone · Session · Farnsworth · Listen · Theme'));
+  settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'12px' }}, 'Tone · Session · Farnsworth · Listen Only · Theme'));
   settingsToggleBtn.addEventListener('click', () => { state.settingsOpen = true; render(); });
   settingsRow.appendChild(settingsToggleBtn);
   wrap.appendChild(settingsRow);
@@ -580,7 +613,7 @@ function renderSettings(t) {
     width:'100%', padding:'16px', background:t.accent, color:t.accentText,
     border:'none', borderRadius:'10px', fontSize:'15px', fontWeight:'700',
     letterSpacing:'2px',
-  }}, isListen ? 'START LISTEN' : 'START PRACTICE');
+  }}, isListen ? 'START LISTENING' : 'START PRACTICE');
   startBtn.addEventListener('click', () => isListen ? startListen() : startPractice());
   wrap.appendChild(startBtn);
 
@@ -699,7 +732,7 @@ function renderSettingsModal(t) {
   const lnRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
   lnRow.appendChild(renderToggle(t, cfg.listenMode, () => { cfg.listenMode = !cfg.listenMode; saveTweaks(); render(); }));
   const lnText = el('div', {});
-  lnText.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px' }}, 'Listen Mode'));
+  lnText.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px' }}, 'Listen Only'));
   lnText.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Auto-play words without testing'));
   lnRow.appendChild(lnText);
   secListen.appendChild(lnRow);
@@ -758,10 +791,10 @@ function renderSettingsModal(t) {
     dlyLbl.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, '× standard 7-dit spacing'));
     const dlyStepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
     const dlyMinus = el('button', { style:stepBtnStyle }, '−');
-    const dlyVal = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'36px', textAlign:'center' }}, `${cfg.listenDelay}×`);
+    const dlyVal = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'36px', textAlign:'center' }}, String(cfg.listenDelay));
     const dlyPlus = el('button', { style:stepBtnStyle }, '+');
-    dlyMinus.addEventListener('click', () => { cfg.listenDelay = Math.max(1, cfg.listenDelay - 1); dlyVal.textContent = `${cfg.listenDelay}×`; saveTweaks(); });
-    dlyPlus.addEventListener('click',  () => { cfg.listenDelay = Math.min(10, cfg.listenDelay + 1); dlyVal.textContent = `${cfg.listenDelay}×`; saveTweaks(); });
+    dlyMinus.addEventListener('click', () => { cfg.listenDelay = Math.max(1, cfg.listenDelay - 1); dlyVal.textContent = String(cfg.listenDelay); saveTweaks(); });
+    dlyPlus.addEventListener('click',  () => { cfg.listenDelay = Math.min(10, cfg.listenDelay + 1); dlyVal.textContent = String(cfg.listenDelay); saveTweaks(); });
     dlyStepper.appendChild(dlyMinus); dlyStepper.appendChild(dlyVal); dlyStepper.appendChild(dlyPlus);
     dlyRow.appendChild(dlyLbl); dlyRow.appendChild(dlyStepper);
     lnExtra.appendChild(dlyRow);
@@ -1174,6 +1207,12 @@ async function startListen() {
     const ce = document.getElementById('listen-count');
     if (ce) ce.textContent = `${ls.wordCount} word${ls.wordCount !== 1 ? 's' : ''} played`;
 
+    // Announcement beep then gap before the word
+    await playListenBeep(cfg.wpm, tweaks.frequency);
+    if (ls.stopRequested) break;
+    await listenSleep(cfg.listenDelay * 7 * 1200 / fwpm, ls);
+    if (ls.stopRequested) break;
+
     for (let r = 0; r < cfg.listenRepeat; r++) {
       if (ls.stopRequested) break;
       await playMorseAudio(word, cfg.wpm, fwpm, tweaks.frequency);
@@ -1182,8 +1221,6 @@ async function startListen() {
       }
     }
     if (ls.stopRequested) break;
-
-    await listenSleep(cfg.listenDelay * 7 * 1200 / fwpm, ls);
   }
 
   if (ls.active) stopListen();
