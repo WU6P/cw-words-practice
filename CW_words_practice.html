@@ -887,6 +887,12 @@ function renderListen(t) {
     color:t.accent, letterSpacing:'4px', marginBottom:'28px',
     minHeight:'72px', display:'flex', alignItems:'center', justifyContent:'center',
   }}, ls.currentWord || '…'));
+  const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
+  const wpmStr = state.cfg.farnsworth ? `${state.cfg.wpm}/${fwpm} WPM` : `${state.cfg.wpm} WPM`;
+  wrap.appendChild(el('div', { style:{
+    fontSize:'13px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px',
+    textTransform:'uppercase', marginBottom:'8px',
+  }}, wpmStr));
   wrap.appendChild(el('div', { id:'listen-timer', style:{
     fontFamily:t.mono, fontSize:'28px', fontWeight:'600',
     color:t.text, letterSpacing:'2px', marginBottom:'12px',
@@ -940,7 +946,7 @@ function renderPractice(t) {
   const wpmLabel = state.cfg.farnsworth ? `${state.cfg.wpm}/${state.cfg.fwpm} WPM` : `${state.cfg.wpm} WPM`;
   const headerRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', gap:'10px', marginBottom:'16px' }});
   headerRow.appendChild(el('span', { style:{ fontSize:'12px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, sessionLabel));
-  headerRow.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.accent, letterSpacing:'1px' }}, wpmLabel));
+  headerRow.appendChild(el('span', { style:{ fontSize:'16px', fontWeight:'600', color:t.accent, letterSpacing:'1px' }}, wpmLabel));
   wrap.appendChild(headerRow);
 
   // Play card
