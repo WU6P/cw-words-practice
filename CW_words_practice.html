@@ -411,8 +411,8 @@ function fmtDur(s) {
   const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
-function durFromPos(p) { return Math.round(60 * Math.pow(720, p / 100)); }
-function posFromDur(s) { return Math.round(100 * Math.log(s / 60) / Math.log(720)); }
+function durFromPos(p) { return Math.round(300 * Math.pow(144, p / 100)); }
+function posFromDur(s) { return Math.round(100 * Math.log(s / 300) / Math.log(144)); }
 function playListenBeep(charWpm, frequency) {
   return new Promise(resolve => {
     const ctx = getCtx();
@@ -514,8 +514,11 @@ function renderHeader(t) {
     backBtn.addEventListener('click', () => { goSettings(); });
     left.appendChild(backBtn);
   }
-  left.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'13px', fontWeight:'700', color:t.accent, letterSpacing:'3px' }}, 'CW'));
-  left.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted, letterSpacing:'1px' }}, 'WORDS PRACTICE'));
+  left.appendChild(el('span', { style:{
+    fontFamily:t.mono, fontSize:'13px', fontWeight:'700', letterSpacing:'2px',
+    background:t.accent, color:t.accentText, borderRadius:'5px', padding:'2px 7px',
+  }}, 'CW Words'));
+  left.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted, letterSpacing:'1px' }}, 'Practice'));
 
   const right = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
   if (progress > 0 && screen === 'practice') {
@@ -805,7 +808,7 @@ function renderSettingsModal(t) {
     durRow.appendChild(durMinus); durRow.appendChild(durSlider); durRow.appendChild(durPlus);
     lnExtra.appendChild(durRow);
     const durRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px', padding:'0 44px' }});
-    durRange.appendChild(el('span', {}, '1 min')); durRange.appendChild(el('span', {}, '12 h'));
+    durRange.appendChild(el('span', {}, '5 min')); durRange.appendChild(el('span', {}, '12 h'));
     lnExtra.appendChild(durRange);
 
     // Word Repeats
@@ -825,9 +828,7 @@ function renderSettingsModal(t) {
     // Word Gap
     lnExtra.appendChild(el('div', { style:{ height:'10px' }}));
     const dlyRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
-    const dlyLbl = el('div', {});
-    dlyLbl.appendChild(el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, 'Word Gap'));
-    dlyLbl.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, '× standard 7-dit spacing'));
+    const dlyLbl = el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, 'Word Gap');
     const dlyStepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
     const dlyMinus = el('button', { style:stepBtnStyle }, '−');
     const dlyVal = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'36px', textAlign:'center' }}, String(cfg.listenDelay));
@@ -939,7 +940,7 @@ function renderPractice(t) {
   const wpmLabel = state.cfg.farnsworth ? `${state.cfg.wpm}/${state.cfg.fwpm} WPM` : `${state.cfg.wpm} WPM`;
   const headerRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', gap:'10px', marginBottom:'16px' }});
   headerRow.appendChild(el('span', { style:{ fontSize:'12px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, sessionLabel));
-  headerRow.appendChild(el('span', { style:{ fontSize:'11px', fontWeight:'600', color:t.accent, letterSpacing:'1px' }}, wpmLabel));
+  headerRow.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.accent, letterSpacing:'1px' }}, wpmLabel));
   wrap.appendChild(headerRow);
 
   // Play card
