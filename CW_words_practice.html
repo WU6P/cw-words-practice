@@ -374,15 +374,22 @@ const state = {
   chosen: null,
   score: { c:0, t:0 },
   sessionLog: [],
-  tweaks: { theme: _saved.theme ?? 'clean', frequency: _saved.frequency ?? 550 },
+  tweaks: { theme: _saved.theme ?? 'clean', frequency: _saved.frequency ?? 550, toneVariation: _saved.toneVariation ?? false },
   playing: false,            // mutex
   replaying: false,          // silent replay in progress
   autoPlayTimer: null,
+  currentTone: _saved.frequency ?? 550,
   listenState: { active:false, elapsed:0, wordCount:0, currentWord:'', stopRequested:false, timerInterval:null, _sleepResolve:null },
 };
 
 function saveTweaks() {
   localStorage.setItem('cw_tweaks', JSON.stringify({ ...state.tweaks, ...state.cfg }));
+}
+function pickWordTone() {
+  const base = state.tweaks.frequency;
+  if (!state.tweaks.toneVariation) return base;
+  const offset = Math.round((Math.random() * 400 - 200) / 10) * 10;
+  return Math.max(300, Math.min(1000, base + offset));
 }
 function T() { return THEMES[state.tweaks.theme] || THEMES.shack; }
 
@@ -806,11 +813,14 @@ function renderSettingsModal(t) {
   hdr.appendChild(closeBtn);
   modal.appendChild(hdr);
 
-  // Tone frequency
+  // Tone — frequency + variation in one box
   const sec5 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
-  const freqLabel = el('label', { htmlFor:'freqSlider', style:lblStyle });
+  sec5.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'10px' }}, 'Tone'));
+
+  // Frequency sub-section
+  const freqLabel = el('label', { htmlFor:'freqSlider', style:{ fontSize:'13px', fontWeight:'600', color:t.text, display:'block', marginBottom:'8px' } });
   const freqValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, `${tweaks.frequency} Hz`);
-  freqLabel.appendChild(document.createTextNode('Tone Frequency — '));
+  freqLabel.appendChild(document.createTextNode('Frequency — '));
   freqLabel.appendChild(freqValSpan);
   sec5.appendChild(freqLabel);
   const freqBtnStyle = { background:'none', border:`1px solid ${t.border}`, color:t.text,
@@ -839,6 +849,39 @@ function renderSettingsModal(t) {
   freqRange.appendChild(el('span', {}, '300 Hz'));
   freqRange.appendChild(el('span', {}, '1000 Hz'));
   sec5.appendChild(freqRange);
+
+  // Divider
+  sec5.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'14px 0' }}));
+
+  // Tone Variation sub-section
+  const tvRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px' }});
+  const tvLabel = el('div', {});
+  tvLabel.appendChild(el('div', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, marginBottom:'3px' }}, 'Tone Variation'));
+  tvLabel.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted }}, 'Random ±200 Hz per new word'));
+  const tvToggle = el('button', {
+    role: 'switch', 'aria-checked': String(tweaks.toneVariation),
+    style:{
+      width:'44px', height:'24px', borderRadius:'12px', border:'none', cursor:'pointer',
+      background: tweaks.toneVariation ? t.accent : t.border,
+      position:'relative', flexShrink:'0', transition:'background 0.2s',
+    }
+  });
+  const tvKnob = el('div', { style:{
+    position:'absolute', top:'2px', width:'20px', height:'20px', borderRadius:'50%',
+    background:'#fff', transition:'left 0.2s',
+    left: tweaks.toneVariation ? '22px' : '2px',
+  }});
+  tvToggle.appendChild(tvKnob);
+  tvToggle.addEventListener('click', () => {
+    tweaks.toneVariation = !tweaks.toneVariation;
+    tvToggle.style.background = tweaks.toneVariation ? t.accent : t.border;
+    tvToggle.setAttribute('aria-checked', String(tweaks.toneVariation));
+    tvKnob.style.left = tweaks.toneVariation ? '22px' : '2px';
+    saveTweaks();
+  });
+  tvRow.appendChild(tvLabel);
+  tvRow.appendChild(tvToggle);
+  sec5.appendChild(tvRow);
   modal.appendChild(sec5);
 
   // Mode selector (two-block, matches home page style) — item 6
@@ -974,44 +1017,51 @@ function renderSettingsModal(t) {
   }
   modal.appendChild(sec3);
 
-  // Natural Voice — gender selector first, then Allow Cloud toggle (item 5)
+  // Natural Voice — on/off switch + gender + cloud toggle
   const secVoice = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
-  secVoice.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'12px' }}, 'Natural Voice'));
 
-  // Gender selector with availability check (now first)
-  const voiceGenderRow = el('div', { style:{ display:'flex', gap:'8px', marginBottom:'12px' }});
-  [['female', 'Woman'], ['male', 'Man']].forEach(([val, label]) => {
-    const avail = !!findVoiceForGender(val, cfg.allowCloudVoice);
-    const sel = cfg.voiceGender === val && avail;
-    const btn = el('button', {
-      style:{
-        flex:'1', padding:'10px 4px',
-        border:`2px solid ${avail && sel ? t.accent : t.border}`,
-        borderRadius:'8px',
-        background: avail && sel ? t.accentDim : t.bgCard,
-        color: avail ? (sel ? t.accent : t.text) : t.textMuted,
-        fontSize:'14px', fontWeight: sel ? '700' : '400', fontFamily:t.mono,
-        opacity: avail ? '1' : '0.4', cursor: avail ? 'pointer' : 'not-allowed',
-        transition:'all 0.12s', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px',
-      },
+  // Header row: title + on/off toggle (same as home screen Voice Reveal)
+  const voiceHdrRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: cfg.listenVoice ? '14px' : '0' }});
+  voiceHdrRow.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'0' }}, 'Voice Reveal'));
+  voiceHdrRow.appendChild(renderToggle(t, cfg.listenVoice, () => { cfg.listenVoice = !cfg.listenVoice; saveTweaks(); render(); }));
+  secVoice.appendChild(voiceHdrRow);
+
+  if (cfg.listenVoice) {
+    // Gender selector with availability check
+    const voiceGenderRow = el('div', { style:{ display:'flex', gap:'8px', marginBottom:'12px' }});
+    [['female', 'Woman'], ['male', 'Man']].forEach(([val, label]) => {
+      const avail = !!findVoiceForGender(val, cfg.allowCloudVoice);
+      const sel = cfg.voiceGender === val && avail;
+      const btn = el('button', {
+        style:{
+          flex:'1', padding:'10px 4px',
+          border:`2px solid ${avail && sel ? t.accent : t.border}`,
+          borderRadius:'8px',
+          background: avail && sel ? t.accentDim : t.bgCard,
+          color: avail ? (sel ? t.accent : t.text) : t.textMuted,
+          fontSize:'14px', fontWeight: sel ? '700' : '400', fontFamily:t.mono,
+          opacity: avail ? '1' : '0.4', cursor: avail ? 'pointer' : 'not-allowed',
+          transition:'all 0.12s', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px',
+        },
+      });
+      btn.disabled = !avail;
+      btn.appendChild(el('span', {}, label));
+      if (!avail) btn.appendChild(el('span', { style:{ fontSize:'10px', color:t.textMuted }}, 'unavailable'));
+      if (avail) btn.addEventListener('click', () => { cfg.voiceGender = val; saveTweaks(); render(); });
+      voiceGenderRow.appendChild(btn);
     });
-    btn.disabled = !avail;
-    btn.appendChild(el('span', {}, label));
-    if (!avail) btn.appendChild(el('span', { style:{ fontSize:'10px', color:t.textMuted }}, 'unavailable'));
-    if (avail) btn.addEventListener('click', () => { cfg.voiceGender = val; saveTweaks(); render(); });
-    voiceGenderRow.appendChild(btn);
-  });
-  secVoice.appendChild(voiceGenderRow);
-  secVoice.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'12px 0' }}));
+    secVoice.appendChild(voiceGenderRow);
+    secVoice.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'12px 0' }}));
 
-  // Allow Cloud Voice toggle (now below gender)
-  const cloudRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
-  const cloudLeft = el('div', {});
-  cloudLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'13px', color:t.text }}, 'Allow Cloud Voices'));
-  cloudLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Use internet voices when no local match'));
-  cloudRow.appendChild(cloudLeft);
-  cloudRow.appendChild(renderToggle(t, cfg.allowCloudVoice, () => { cfg.allowCloudVoice = !cfg.allowCloudVoice; saveTweaks(); render(); }));
-  secVoice.appendChild(cloudRow);
+    // Allow Cloud Voice toggle
+    const cloudRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
+    const cloudLeft = el('div', {});
+    cloudLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'13px', color:t.text }}, 'Allow Cloud Voices'));
+    cloudLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Use internet voices when no local match'));
+    cloudRow.appendChild(cloudLeft);
+    cloudRow.appendChild(renderToggle(t, cfg.allowCloudVoice, () => { cfg.allowCloudVoice = !cfg.allowCloudVoice; saveTweaks(); render(); }));
+    secVoice.appendChild(cloudRow);
+  }
   modal.appendChild(secVoice);
 
   // Theme picker
@@ -1168,8 +1218,7 @@ function renderPractice(t) {
     playBtn.addEventListener('click', doPlay);
     playArea.appendChild(playBtn);
   } else if (answered) {
-    // spacer
-    playArea.style.height = '72px';
+    playArea.style.height = chosen === q.correct ? '72px' : '88px';
   }
   card.appendChild(playArea);
 
@@ -1186,6 +1235,9 @@ function renderPractice(t) {
   }
   card.appendChild(statusLine);
 
+  // Wrong-answer actions row (circle replay + Next) — sits below wave area
+  if (answered && chosen !== q.correct) card.appendChild(makeWrongActions(t));
+
   // Answered: reveal + buttons
   if (answered) {
     const reveal = el('div', { id:'cw-reveal', className:'slide-up', style:{ marginTop:'16px', marginBottom:'20px' }});
@@ -1196,23 +1248,25 @@ function renderPractice(t) {
       fontSize:'12px', fontFamily:t.mono, color:t.textMuted, marginTop:'6px', letterSpacing:'2px', wordBreak:'break-all',
     }}, textToMorse(q.correct)));
 
-    const btnRow = el('div', { style:{ display:'flex', gap:'10px', marginTop:'4px' }});
-    const replayBtn = el('button', { className:'btn-border-hover', 'aria-label':'Replay Morse code', style:{
-      flex:'1', padding:'12px', background:'none',
-      border:`2px solid ${t.border}`, borderRadius:'10px',
-      color:t.text, fontSize:'14px', fontWeight:'600', transition:'border-color 0.15s',
-    }}, '↺ Replay');
-    replayBtn.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
-    const nextDisabled = state.playing;
-    const nextBtn = el('button', { id:'next-btn', disabled: nextDisabled, style:{
-      flex:'2', padding:'12px', background: nextDisabled ? t.border : t.accent, border:'none',
-      borderRadius:'10px', color: nextDisabled ? t.textMuted : t.accentText, fontSize:'14px', fontWeight:'700', letterSpacing:'1px',
-      cursor: nextDisabled ? 'not-allowed' : 'pointer', transition:'background 0.15s, color 0.15s',
-    }}, 'Next →');
-    nextBtn.addEventListener('click', e => { e.stopPropagation(); handleNext(); });
-    btnRow.appendChild(replayBtn);
-    btnRow.appendChild(nextBtn);
-    reveal.appendChild(btnRow);
+    if (chosen === q.correct) {
+      const btnRow = el('div', { style:{ display:'flex', gap:'10px', marginTop:'4px' }});
+      const replayBtn = el('button', { className:'btn-border-hover', 'aria-label':'Replay Morse code', style:{
+        flex:'1', padding:'12px', background:'none',
+        border:`2px solid ${t.border}`, borderRadius:'10px',
+        color:t.text, fontSize:'14px', fontWeight:'600', transition:'border-color 0.15s',
+      }}, '↺ Replay');
+      replayBtn.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
+      const nextDisabled = state.playing;
+      const nextBtn = el('button', { id:'next-btn', disabled: nextDisabled, style:{
+        flex:'2', padding:'12px', background: nextDisabled ? t.border : t.accent, border:'none',
+        borderRadius:'10px', color: nextDisabled ? t.textMuted : t.accentText, fontSize:'14px', fontWeight:'700', letterSpacing:'1px',
+        cursor: nextDisabled ? 'not-allowed' : 'pointer', transition:'background 0.15s, color 0.15s',
+      }}, 'Next →');
+      nextBtn.addEventListener('click', e => { e.stopPropagation(); handleNext(); });
+      btnRow.appendChild(replayBtn);
+      btnRow.appendChild(nextBtn);
+      reveal.appendChild(btnRow);
+    }
     card.appendChild(reveal);
   }
   wrap.appendChild(card);
@@ -1420,6 +1474,7 @@ async function startListen() {
     lastWord = word;
     ls.currentWord = word;
     ls.wordCount++;
+    state.currentTone = pickWordTone();
 
     const we = document.getElementById('listen-word');
     if (we) we.textContent = word;
@@ -1435,7 +1490,7 @@ async function startListen() {
       // Voice ON: standard gap after beep, then first morse, then configurable gap before voice
       await listenSleep(stdGap, ls);
       if (ls.stopRequested) break;
-      await playMorseAudio(word, cfg.wpm, fwpm, tweaks.frequency);
+      await playMorseAudio(word, cfg.wpm, fwpm, state.currentTone);
       if (ls.stopRequested) break;
       await listenSleep(cfg.listenDelay * stdGap, ls);
       if (ls.stopRequested) break;
@@ -1449,14 +1504,14 @@ async function startListen() {
       if (ls.stopRequested) break;
       // When repeat=0, still play once here
       if (cfg.listenRepeat === 0) {
-        await playMorseAudio(word, cfg.wpm, fwpm, tweaks.frequency);
+        await playMorseAudio(word, cfg.wpm, fwpm, state.currentTone);
         if (ls.stopRequested) break;
       }
     }
 
     for (let r = 0; r < cfg.listenRepeat; r++) {
       if (ls.stopRequested) break;
-      await playMorseAudio(word, cfg.wpm, fwpm, tweaks.frequency);
+      await playMorseAudio(word, cfg.wpm, fwpm, state.currentTone);
       if (r < cfg.listenRepeat - 1 && !ls.stopRequested) {
         await listenSleep(7 * 1200 / cfg.wpm, ls);
       }
@@ -1482,13 +1537,14 @@ function stopListen() {
 async function doPlay() {
   if (state.playing) return;
   state.playing = true;
+  state.currentTone = pickWordTone();
   if (state.playState !== 'playing') {
     state.playState = 'playing';
     render();
   }
   const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
   try {
-    await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.tweaks.frequency);
+    await playMorseAudio(state.q.correct, state.cfg.wpm, fwpm, state.currentTone);
   } finally {
     state.playing = false;
   }
@@ -1502,21 +1558,23 @@ function _showWave() {
   pa.appendChild(renderWave(T()));
 }
 
-function makeWrongButtons(t) {
-  const row = el('div', { style:{ display:'flex', gap:'10px', width:'100%' }});
-  const rb = el('button', { style:{
-    flex:'1', padding:'12px', background:'none', border:`2px solid ${t.border}`,
-    borderRadius:'10px', color:t.text, fontSize:'14px', fontWeight:'600', cursor:'pointer',
-  }}, '↺ Replay');
+function makeWrongActions(t) {
+  const div = el('div', { id:'cw-wrong-actions', style:{ display:'flex', alignItems:'center', gap:'10px', margin:'8px 0 4px', width:'100%' }});
+  const rb = el('button', { 'aria-label':'Replay Morse code', style:{
+    width:'64px', height:'64px', borderRadius:'50%', background:'none',
+    border:`2px solid ${t.border}`, display:'flex', alignItems:'center', justifyContent:'center',
+    fontSize:'28px', color:t.textMuted, flexShrink:'0', cursor:'pointer', transition:'all 0.15s',
+  }}, '↺');
   rb.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
   const nb = el('button', { id:'next-btn', style:{
-    flex:'2', padding:'12px', background:t.accent, border:'none',
+    flex:'1', padding:'20px 12px', background:t.accent, border:'none',
     borderRadius:'10px', color:t.accentText, fontSize:'14px', fontWeight:'700', cursor:'pointer',
+    transition:'background 0.15s, color 0.15s',
   }}, 'Next →');
   nb.addEventListener('click', e => { e.stopPropagation(); handleNext(); });
-  row.appendChild(rb);
-  row.appendChild(nb);
-  return row;
+  div.appendChild(rb);
+  div.appendChild(nb);
+  return div;
 }
 
 function refreshHeader() {
@@ -1529,14 +1587,18 @@ function transitionToAnswered(choice) {
   refreshHeader();
   const pa = document.getElementById('cw-play-area');
   if (pa) {
-    pa.style.height = '72px'; pa.innerHTML = '';
-    if (!ok) pa.appendChild(makeWrongButtons(t));
+    pa.style.height = ok ? '72px' : '88px'; pa.innerHTML = '';
+    // pa stays as wave area — wrong-actions go below
   }
+  // Remove stale wrong-actions from a previous wrong answer
+  const existingWA = document.getElementById('cw-wrong-actions');
+  if (existingWA) existingWA.remove();
   const s = document.getElementById('cw-status');
   if (s) {
     if (ok) { s.textContent = '✓ Correct!'; s.style.color = t.correct; s.style.fontWeight = '700'; s.style.fontSize = '18px'; }
     else { s.textContent = ''; }
   }
+  if (!ok && s) s.insertAdjacentElement('afterend', makeWrongActions(t));
   const g = document.getElementById('cw-choices');
   if (g) Array.from(g.querySelectorAll('button')).forEach(btn => {
     const w = btn.textContent.toLowerCase().trim();
@@ -1560,9 +1622,8 @@ function _hideWave() {
     }}, '↺');
     btn.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
     pa.appendChild(btn);
-  } else if (state.playState === 'answered' && state.chosen !== state.q.correct) {
-    pa.appendChild(makeWrongButtons(t));
   }
+  // For wrong-answered: pa returns to empty spacer; cw-wrong-actions div persists below
 }
 
 async function doPlayWord(word) {
@@ -1576,7 +1637,7 @@ async function doPlayWord(word) {
   if (nb0) { nb0.disabled = true; nb0.style.background = t0.border; nb0.style.color = t0.textMuted; nb0.style.cursor = 'not-allowed'; }
   const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
   try {
-    await playMorseAudio(word, state.cfg.wpm, fwpm, state.tweaks.frequency);
+    await playMorseAudio(word, state.cfg.wpm, fwpm, state.currentTone);
   } finally {
     state.playing = false;
     state.replaying = false;
