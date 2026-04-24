@@ -364,6 +364,9 @@ const state = {
     listenDuration: _saved.listenDuration ?? 1800,
     listenRepeat:   _saved.listenRepeat   ?? 4,
     listenDelay:    _saved.listenDelay    ?? 2,
+    listenVoice:      _saved.listenVoice      ?? false,
+    voiceGender:      _saved.voiceGender      ?? 'female',
+    allowCloudVoice:  _saved.allowCloudVoice  ?? false,
   },
   settingsOpen: false,
   q: null,
@@ -435,6 +438,78 @@ function playListenBeep(charWpm, frequency) {
     setTimeout(resolve, (dit + 0.15) * 1000);
   });
 }
+let _voiceCache = null;
+if (typeof window !== 'undefined' && window.speechSynthesis) {
+  // Kick off voice loading immediately so the cache is warm before the settings modal opens
+  _voiceCache = window.speechSynthesis.getVoices();
+  window.speechSynthesis.addEventListener('voiceschanged', () => {
+    _voiceCache = window.speechSynthesis.getVoices();
+    // Re-render the settings modal so availability checks update once voices arrive
+    if (typeof state !== 'undefined' && state.settingsOpen) render();
+  });
+}
+const _noveltyRe = /fred|bruce|albert|ralph|bad news|hysterical|junior|whisper|zarvox|trinoids|cellos|organ|pipe/i;
+// Female: includes common macOS (Samantha, Nicky, Ava, Victoria, Karen, Moira, Fiona…), Windows (Zira, Hazel), and others
+const _femaleRe  = /samantha|nicky|victoria|karen|allison|susan|zira|hazel|fiona|moira|veena|tessa|serena|ava|kate|siri|google.*us.*english(?!.*male)/i;
+const _maleRe    = /google.*us.*english.*male|google.*uk.*english.*male|\balex\b|microsoft.*david|daniel\b|oliver\b|rishi|james\b|aaron\b/i;
+
+function _voiceCandidates() {
+  if (!_voiceCache || !_voiceCache.length) _voiceCache = window.speechSynthesis.getVoices();
+  const en = (_voiceCache || []).filter(v => v.lang.startsWith('en'));
+  const pool = en.filter(v => !_noveltyRe.test(v.name));
+  return pool.length ? pool : en;
+}
+
+// Returns the best matching voice for a gender, or null if none found under the given constraints.
+// Used both by getPreferredVoice() at runtime and by the settings UI to check availability.
+// Female strategy: named match first, then ANY local non-male voice (defaults are almost always female).
+// Male strategy: requires an explicit named match — grey out if none found.
+function findVoiceForGender(gender, allowCloud) {
+  const candidates = _voiceCandidates();
+  if (!candidates.length) return null;
+  // localService may be undefined in some browsers — treat undefined as local (not explicitly cloud)
+  const local = candidates.filter(v => v.localService !== false);
+
+  if (gender === 'female') {
+    const localNamed = local.find(v => _femaleRe.test(v.name));
+    if (localNamed) return localNamed;
+    const localAny = local.find(v => !_maleRe.test(v.name));
+    if (localAny) return localAny;
+    if (allowCloud) return candidates.find(v => _femaleRe.test(v.name))
+                        || candidates.find(v => !_maleRe.test(v.name))
+                        || null;
+    return null;
+  } else {
+    const localMale = local.find(v => _maleRe.test(v.name));
+    if (localMale) return localMale;
+    if (allowCloud) return candidates.find(v => _maleRe.test(v.name)) || null;
+    return null;
+  }
+}
+
+function getPreferredVoice() {
+  const { voiceGender: gender, allowCloudVoice: allowCloud } = state.cfg;
+  const match = findVoiceForGender(gender, allowCloud);
+  if (match) return match;
+  // Fallback: any local voice, then any voice
+  const candidates = _voiceCandidates();
+  const local = candidates.filter(v => v.localService !== false);
+  return (allowCloud ? candidates[0] : local[0]) || candidates[0] || null;
+}
+
+function speakWord(text) {
+  return new Promise(resolve => {
+    if (!window.speechSynthesis) { resolve(); return; }
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.rate = 0.85;
+    const v = getPreferredVoice();
+    if (v) utt.voice = v;
+    utt.onend = resolve;
+    utt.onerror = resolve;
+    window.speechSynthesis.speak(utt);
+  });
+}
+
 function listenSleep(ms, ls) {
   return new Promise(resolve => {
     const id = setTimeout(resolve, Math.max(0, ms));
@@ -631,19 +706,40 @@ function renderSettings(t) {
   sec2.appendChild(wpmRange);
   wrap.appendChild(sec2);
 
-  // Listen Only quick toggle
-  const listenRow = el('div', { style:{
+  // Mode selector: Practice / Listen
+  const modeSec = el('div', { style:{ marginBottom:'16px' }});
+  modeSec.appendChild(el('label', { style:{ display:'block', fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:'10px' }}, 'Mode'));
+  const modeRow = el('div', { style:{ display:'flex', gap:'8px' }});
+  [[false, 'Practice', 'Test your decoding'], [true, 'Listen', 'Auto-play words']].forEach(([val, label, desc]) => {
+    const sel = cfg.listenMode === val;
+    const btn = el('button', { style:{
+      flex:'1', padding:'12px 8px', border:`2px solid ${sel ? t.accent : t.border}`,
+      borderRadius:'10px', background: sel ? t.accentDim : t.bgCard,
+      color: sel ? t.accent : t.text,
+      fontWeight: sel ? '700' : '400', transition:'all 0.12s',
+      display:'flex', flexDirection:'column', alignItems:'center', gap:'4px', cursor:'pointer',
+    }});
+    btn.appendChild(el('span', { style:{ fontSize:'15px', fontWeight: sel ? '700' : '600', color: sel ? t.accent : t.text }}, label));
+    btn.appendChild(el('span', { style:{ fontSize:'11px', color: sel ? t.accent : t.textMuted, fontWeight:'400' }}, desc));
+    btn.addEventListener('click', () => { cfg.listenMode = val; saveTweaks(); render(); });
+    modeRow.appendChild(btn);
+  });
+  modeSec.appendChild(modeRow);
+  wrap.appendChild(modeSec);
+
+  // Voice Reveal quick toggle
+  const voiceRevealRow = el('div', { style:{
     display:'flex', alignItems:'center', justifyContent:'space-between',
     padding:'12px 16px', marginBottom:'16px',
-    background:t.bgCard, border:`1px solid ${cfg.listenMode ? t.accent : t.border}`,
+    background:t.bgCard, border:`1px solid ${cfg.listenVoice ? t.accent : t.border}`,
     borderRadius:'10px', transition:'border-color 0.15s',
   }});
-  const listenRowLeft = el('div', {});
-  listenRowLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, 'Listen Only'));
-  listenRowLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Auto-play without testing'));
-  listenRow.appendChild(listenRowLeft);
-  listenRow.appendChild(renderToggle(t, cfg.listenMode, () => { cfg.listenMode = !cfg.listenMode; saveTweaks(); render(); }));
-  wrap.appendChild(listenRow);
+  const voiceRevealLeft = el('div', {});
+  voiceRevealLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, 'Voice Reveal'));
+  voiceRevealLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Speak word aloud after first Morse play'));
+  voiceRevealRow.appendChild(voiceRevealLeft);
+  voiceRevealRow.appendChild(renderToggle(t, cfg.listenVoice, () => { cfg.listenVoice = !cfg.listenVoice; saveTweaks(); render(); }));
+  wrap.appendChild(voiceRevealRow);
 
   // Settings sub-window button
   const settingsRow = el('div', { style:{ marginBottom:'28px' }});
@@ -775,6 +871,45 @@ function renderSettingsModal(t) {
   }
   modal.appendChild(sec3);
 
+  // Natural Voice
+  const secVoice = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  secVoice.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'12px' }}, 'Natural Voice'));
+
+  // Allow Cloud Voice toggle
+  const cloudRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'12px' }});
+  const cloudLeft = el('div', {});
+  cloudLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'13px', color:t.text }}, 'Allow Cloud Voices'));
+  cloudLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Use internet voices when no local match'));
+  cloudRow.appendChild(cloudLeft);
+  cloudRow.appendChild(renderToggle(t, cfg.allowCloudVoice, () => { cfg.allowCloudVoice = !cfg.allowCloudVoice; saveTweaks(); render(); }));
+  secVoice.appendChild(cloudRow);
+
+  // Gender selector with availability check
+  const voiceGenderRow = el('div', { style:{ display:'flex', gap:'8px' }});
+  [['female', 'Woman'], ['male', 'Man']].forEach(([val, label]) => {
+    const avail = !!findVoiceForGender(val, cfg.allowCloudVoice);
+    const sel = cfg.voiceGender === val && avail;
+    const btn = el('button', {
+      style:{
+        flex:'1', padding:'10px 4px',
+        border:`2px solid ${avail && sel ? t.accent : t.border}`,
+        borderRadius:'8px',
+        background: avail && sel ? t.accentDim : t.bgCard,
+        color: avail ? (sel ? t.accent : t.text) : t.textMuted,
+        fontSize:'14px', fontWeight: sel ? '700' : '400', fontFamily:t.mono,
+        opacity: avail ? '1' : '0.4', cursor: avail ? 'pointer' : 'not-allowed',
+        transition:'all 0.12s', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px',
+      },
+    });
+    btn.disabled = !avail;   // set DOM property, not setAttribute (avoids "disabled=false" bug)
+    btn.appendChild(el('span', {}, label));
+    if (!avail) btn.appendChild(el('span', { style:{ fontSize:'10px', color:t.textMuted }}, 'unavailable'));
+    if (avail) btn.addEventListener('click', () => { cfg.voiceGender = val; saveTweaks(); render(); });
+    voiceGenderRow.appendChild(btn);
+  });
+  secVoice.appendChild(voiceGenderRow);
+  modal.appendChild(secVoice);
+
   // Listen Mode
   const secListen = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
   const lnRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
@@ -825,7 +960,7 @@ function renderSettingsModal(t) {
     const repMinus = el('button', { style:stepBtnStyle }, '−');
     const repVal = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'32px', textAlign:'center' }}, String(cfg.listenRepeat));
     const repPlus = el('button', { style:stepBtnStyle }, '+');
-    repMinus.addEventListener('click', () => { cfg.listenRepeat = Math.max(1, cfg.listenRepeat - 1); repVal.textContent = cfg.listenRepeat; saveTweaks(); });
+    repMinus.addEventListener('click', () => { cfg.listenRepeat = Math.max(0, cfg.listenRepeat - 1); repVal.textContent = cfg.listenRepeat; saveTweaks(); });
     repPlus.addEventListener('click',  () => { cfg.listenRepeat = Math.min(10, cfg.listenRepeat + 1); repVal.textContent = cfg.listenRepeat; saveTweaks(); });
     repStepper.appendChild(repMinus); repStepper.appendChild(repVal); repStepper.appendChild(repPlus);
     repRow.appendChild(repLbl); repRow.appendChild(repStepper);
@@ -1264,8 +1399,30 @@ async function startListen() {
     // Announcement beep then gap before the word
     await playListenBeep(cfg.wpm, tweaks.frequency);
     if (ls.stopRequested) break;
-    await listenSleep(cfg.listenDelay * 7 * 1200 / fwpm, ls);
-    if (ls.stopRequested) break;
+    const stdGap = 7 * 1200 / fwpm;
+
+    if (cfg.listenVoice) {
+      // Voice ON: standard gap after beep, then first morse, then configurable gap before voice
+      await listenSleep(stdGap, ls);
+      if (ls.stopRequested) break;
+      await playMorseAudio(word, cfg.wpm, fwpm, tweaks.frequency);
+      if (ls.stopRequested) break;
+      await listenSleep(cfg.listenDelay * stdGap, ls);
+      if (ls.stopRequested) break;
+      await speakWord(word);
+      if (ls.stopRequested) break;
+      await listenSleep(stdGap, ls);
+      if (ls.stopRequested) break;
+    } else {
+      // Voice OFF: configurable gap between words (before first morse)
+      await listenSleep(cfg.listenDelay * stdGap, ls);
+      if (ls.stopRequested) break;
+      // When repeat=0, still play once here
+      if (cfg.listenRepeat === 0) {
+        await playMorseAudio(word, cfg.wpm, fwpm, tweaks.frequency);
+        if (ls.stopRequested) break;
+      }
+    }
 
     for (let r = 0; r < cfg.listenRepeat; r++) {
       if (ls.stopRequested) break;
@@ -1480,12 +1637,21 @@ function handleAnswer(choice) {
 
   const sessionDone = state.sessionLog.length >= state.cfg.sessionSize;
   if (ok) {
+    if (state.cfg.listenVoice) speakWord(choice);
     setTimeout(() => {
       if (sessionDone) { state.screen = 'summary'; render(); return; }
       handleNext();
     }, 1100);
   } else {
-    setTimeout(() => doReplay(), 400);
+    if (state.cfg.listenVoice) {
+      // Speak wrong word → 0.5s pause → speak correct word → then replay morse
+      speakWord(choice)
+        .then(() => new Promise(r => setTimeout(r, 500)))
+        .then(() => speakWord(state.q.correct))
+        .then(() => doReplay());
+    } else {
+      setTimeout(() => doReplay(), 400);
+    }
   }
 }
 
