@@ -960,7 +960,7 @@ function renderHeader(t) {
   helpWrap.appendChild(helpBtn);
   if (state.helpDropdownOpen) {
     const ddOverlay = el('div', { style:{
-      position:'fixed', inset:'0', zIndex:29,
+      position:'fixed', inset:'0', zIndex:19,
     }});
     ddOverlay.addEventListener('click', () => { state.helpDropdownOpen = false; render(); });
     document.body.appendChild(ddOverlay);
@@ -1114,7 +1114,7 @@ function renderSettings(t) {
   settingsLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, '⚙ Settings'));
   settingsLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Tone · Session · Farnsworth · Listen Only · Theme'));
   settingsToggleBtn.appendChild(settingsLeft);
-  settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'16px' }}, '›'));
+  settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'16px', marginLeft:'auto' }}, '›'));
   settingsToggleBtn.addEventListener('click', () => { state.settingsOpen = true; render(); });
   settingsRow.appendChild(settingsToggleBtn);
   wrap.appendChild(settingsRow);
