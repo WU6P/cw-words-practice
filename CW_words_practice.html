@@ -638,9 +638,11 @@ function listenSleep(ms, ls) {
 function render() {
   const root = document.getElementById('root');
   root.innerHTML = '';
-  // Remove any previously mounted settings modal overlay
+  // Remove any previously mounted modal overlays
   const _oldOverlay = document.getElementById('_settings-overlay');
   if (_oldOverlay) _oldOverlay.remove();
+  const _oldHelpOverlay = document.getElementById('_help-overlay');
+  if (_oldHelpOverlay) _oldHelpOverlay.remove();
   const t = T();
   // Push theme colours to CSS variables for hover/focus rules (S4, S5)
   document.documentElement.style.setProperty('--t-accent',   t.accent);
@@ -726,13 +728,34 @@ function renderHelpModal(t) {
   const closeBtn = el('button', { 'aria-label':'Close', style:{
     background:'none', border:'none', color:t.textMuted, fontSize:'24px', lineHeight:'1', padding:'0 4px', cursor:'pointer',
   }}, '×');
-  closeBtn.addEventListener('click', () => { state.helpOpen = null; render(); });
+  closeBtn.addEventListener('click', () => {
+    const ov = document.getElementById('_help-overlay');
+    if (ov) ov.remove();
+    state.helpOpen = null;
+    render();
+  });
   hdr.appendChild(closeBtn);
   modal.appendChild(hdr);
 
   if (state.helpOpen === 'manual')  modal.appendChild(renderManualContent(t));
   if (state.helpOpen === 'contact') modal.appendChild(renderContactContent(t));
   if (state.helpOpen === 'about')   modal.appendChild(renderAboutContent(t));
+
+  // Close button at bottom
+  const closeFooter = el('div', { style:{ marginTop:'28px', display:'flex', justifyContent:'center' }});
+  const closeFooterBtn = el('button', { style:{
+    padding:'11px 40px', background:t.accent, color:t.accentText,
+    border:'none', borderRadius:'8px', fontSize:'14px', fontWeight:'700',
+    cursor:'pointer', letterSpacing:'1px',
+  }}, 'Close');
+  closeFooterBtn.addEventListener('click', () => {
+    const ov = document.getElementById('_help-overlay');
+    if (ov) ov.remove();
+    state.helpOpen = null;
+    render();
+  });
+  closeFooter.appendChild(closeFooterBtn);
+  modal.appendChild(closeFooter);
 
   overlay.appendChild(modal);
   return overlay;
@@ -1106,7 +1129,7 @@ function renderSettings(t) {
   const settingsToggleBtn = el('button', { className:'btn-border-hover', 'aria-haspopup':'dialog', 'aria-expanded': state.settingsOpen ? 'true' : 'false', style:{
     width:'100%', padding:'12px 16px', background:t.bgCard,
     border:`1px solid ${t.border}`, borderRadius:'10px',
-    color:t.text, fontSize:'14px', fontWeight:'600',
+    color:t.text, fontSize:'14px', fontWeight:'600', textAlign:'left',
     display:'flex', alignItems:'center', justifyContent:'flex-start', gap:'10px',
     transition:'border-color 0.15s',
   }});
