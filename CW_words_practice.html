@@ -320,10 +320,14 @@ const state = {
   screen: 'settings',
   cfg: {
     listKey:     _saved.listKey     ?? 'top100',
-    wpm:         _saved.wpm         ?? 20,
+    wpm:         Math.min(_saved.wpm ?? 25, 75),
     farnsworth:  _saved.farnsworth  ?? false,
     fwpm:        _saved.fwpm        ?? 15,
-    sessionSize: _saved.sessionSize ?? 20,
+    sessionSize:    _saved.sessionSize    ?? 20,
+    listenMode:     _saved.listenMode     ?? false,
+    listenDuration: _saved.listenDuration ?? 1800,
+    listenRepeat:   _saved.listenRepeat   ?? 2,
+    listenDelay:    _saved.listenDelay    ?? 1,
   },
   settingsOpen: false,
   q: null,
@@ -331,10 +335,11 @@ const state = {
   chosen: null,
   score: { c:0, t:0 },
   sessionLog: [],
-  tweaks: { theme: _saved.theme ?? 'shack', frequency: _saved.frequency ?? 550 },
+  tweaks: { theme: _saved.theme ?? 'clean', frequency: _saved.frequency ?? 550 },
   playing: false,            // mutex
   replaying: false,          // silent replay in progress
   autoPlayTimer: null,
+  listenState: { active:false, elapsed:0, wordCount:0, currentWord:'', stopRequested:false, timerInterval:null, _sleepResolve:null },
 };
 
 function saveTweaks() {
@@ -360,6 +365,23 @@ function el(tag, attrs, ...children) {
 }
 function css(obj) {  // convert style object to inline string (unused but handy)
   return Object.entries(obj).map(([k,v]) => `${k.replace(/([A-Z])/g,'-$1').toLowerCase()}:${v}`).join(';');
+}
+function fmtHMS(s) {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+function fmtDur(s) {
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+function durFromPos(p) { return Math.round(60 * Math.pow(720, p / 100)); }
+function posFromDur(s) { return Math.round(100 * Math.log(s / 60) / Math.log(720)); }
+function listenSleep(ms, ls) {
+  return new Promise(resolve => {
+    const id = setTimeout(resolve, Math.max(0, ms));
+    ls._sleepResolve = () => { clearTimeout(id); resolve(); };
+  });
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────────
@@ -402,6 +424,8 @@ function render() {
   if (state.screen === 'settings') inner.appendChild(renderSettings(t));
   else if (state.screen === 'practice' && state.q) inner.appendChild(renderPractice(t));
   else if (state.screen === 'summary') inner.appendChild(renderSummary(t));
+  else if (state.screen === 'listen') inner.appendChild(renderListen(t));
+  else if (state.screen === 'listenSummary') inner.appendChild(renderListenSummary(t));
 
   body.appendChild(inner);
   wrap.appendChild(body);
@@ -448,7 +472,7 @@ function renderHeader(t) {
     progressWrap.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted }}, `${progress}/${cfg.sessionSize}`));
     right.appendChild(progressWrap);
   }
-  if (score.t > 0) {
+  if (score.t > 0 && screen !== 'settings') {
     const scoreDiv = el('div', { style:{ textAlign:'right' }});
     scoreDiv.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'16px', fontWeight:'700', color:t.text }}, `${score.c}/${score.t}`));
     scoreDiv.appendChild(el('div', { style:{
@@ -478,19 +502,24 @@ function renderSettings(t) {
   // Word List
   const lblStyle = { display:'block', fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:'10px' };
   const sec1 = el('div', { style:{ marginBottom:'28px' }});
-  const grid = el('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }});
+  sec1.appendChild(el('label', { style:lblStyle }, 'Session'));
+  const listSelect = el('select', { style:{
+    width:'100%', padding:'14px 18px',
+    border:`2px solid ${t.accent}`, borderRadius:'10px',
+    background:t.bgCard, color:t.accent,
+    fontSize:'20px', fontWeight:'400',
+    appearance:'none', WebkitAppearance:'none',
+    backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Cpath fill='${encodeURIComponent(t.accent)}' d='M5 7l5 5 5-5z'/%3E%3C/svg%3E")`,
+    backgroundRepeat:'no-repeat', backgroundPosition:'right 14px center',
+    cursor:'pointer',
+  }});
   LIST_OPTS.forEach(o => {
-    const sel = cfg.listKey === o.key;
-    const btn = el('button', { style:{
-      padding:'10px 12px', border:`2px solid ${sel ? t.accent : t.border}`,
-      borderRadius:'8px', background: sel ? t.accentDim : t.bgCard,
-      color: sel ? t.accent : t.text, fontSize:'15px',
-      fontWeight: sel ? '700' : '600', textAlign:'center', transition:'all 0.12s',
-    }}, o.label);
-    btn.addEventListener('click', () => { cfg.listKey = o.key; saveTweaks(); render(); });
-    grid.appendChild(btn);
+    const opt = el('option', { value:o.key }, o.label);
+    if (cfg.listKey === o.key) opt.selected = true;
+    listSelect.appendChild(opt);
   });
-  sec1.appendChild(grid);
+  listSelect.addEventListener('change', () => { cfg.listKey = listSelect.value; saveTweaks(); render(); });
+  sec1.appendChild(listSelect);
   wrap.appendChild(sec1);
 
   // Character Speed
@@ -500,20 +529,33 @@ function renderSettings(t) {
   wpmLabel.appendChild(document.createTextNode('Character Speed — '));
   wpmLabel.appendChild(wpmValSpan);
   sec2.appendChild(wpmLabel);
-  const wpmSlider = el('input', { type:'range', min:'10', max:'100', step:'1', value:String(cfg.wpm),
-    style:{ accentColor:t.accent }});
+  const wpmRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
+  const btnStyle = { background:'none', border:`1px solid ${t.border}`, color:t.text,
+    fontSize:'20px', fontWeight:'400', width:'36px', height:'36px', borderRadius:'8px',
+    display:'flex', alignItems:'center', justifyContent:'center', flexShrink:'0', cursor:'pointer' };
+  const wpmMinus = el('button', { 'aria-label':'Decrease WPM', style:btnStyle }, '−');
+  const wpmSlider = el('input', { type:'range', min:'10', max:'75', step:'1', value:String(cfg.wpm),
+    style:{ accentColor:t.accent, flex:'1' }});
+  const wpmPlus = el('button', { 'aria-label':'Increase WPM', style:btnStyle }, '+');
   wpmSlider.style.setProperty('--thumb-color', t.accent);
   wpmSlider.style.setProperty('--track-color', t.border);
-  wpmSlider.addEventListener('input', () => {
-    cfg.wpm = +wpmSlider.value;
+  function updateWpm(v) {
+    cfg.wpm = Math.max(10, Math.min(75, v));
     if (cfg.fwpm > cfg.wpm) cfg.fwpm = cfg.wpm;
+    wpmSlider.value = cfg.wpm;
     wpmValSpan.textContent = `${cfg.wpm} WPM`;
-  });
+  }
+  wpmSlider.addEventListener('input', () => updateWpm(+wpmSlider.value));
   wpmSlider.addEventListener('change', () => { saveTweaks(); render(); playTestR(); });
-  sec2.appendChild(wpmSlider);
-  const wpmRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
+  wpmMinus.addEventListener('click', () => { updateWpm(cfg.wpm - 1); saveTweaks(); playTestR(); });
+  wpmPlus.addEventListener('click',  () => { updateWpm(cfg.wpm + 1); saveTweaks(); playTestR(); });
+  wpmRow.appendChild(wpmMinus);
+  wpmRow.appendChild(wpmSlider);
+  wpmRow.appendChild(wpmPlus);
+  sec2.appendChild(wpmRow);
+  const wpmRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px', padding:'0 44px' }});
   wpmRange.appendChild(el('span', {}, '10 WPM'));
-  wpmRange.appendChild(el('span', {}, '100 WPM'));
+  wpmRange.appendChild(el('span', {}, '75 WPM'));
   sec2.appendChild(wpmRange);
   wrap.appendChild(sec2);
 
@@ -527,18 +569,19 @@ function renderSettings(t) {
     transition:'border-color 0.15s',
   }});
   settingsToggleBtn.appendChild(el('span', {}, '⚙ More Settings'));
-  settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'12px' }}, 'Tone · Session · Farnsworth · Theme'));
+  settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'12px' }}, 'Tone · Session · Farnsworth · Listen · Theme'));
   settingsToggleBtn.addEventListener('click', () => { state.settingsOpen = true; render(); });
   settingsRow.appendChild(settingsToggleBtn);
   wrap.appendChild(settingsRow);
 
   // Start button
+  const isListen = cfg.listenMode;
   const startBtn = el('button', { style:{
     width:'100%', padding:'16px', background:t.accent, color:t.accentText,
     border:'none', borderRadius:'10px', fontSize:'15px', fontWeight:'700',
     letterSpacing:'2px',
-  }}, 'START PRACTICE');
-  startBtn.addEventListener('click', () => startPractice());
+  }}, isListen ? 'START LISTEN' : 'START PRACTICE');
+  startBtn.addEventListener('click', () => isListen ? startListen() : startPractice());
   wrap.appendChild(startBtn);
 
   // Settings modal overlay
@@ -651,6 +694,82 @@ function renderSettingsModal(t) {
   }
   modal.appendChild(sec3);
 
+  // Listen Mode
+  const secListen = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  const lnRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
+  lnRow.appendChild(renderToggle(t, cfg.listenMode, () => { cfg.listenMode = !cfg.listenMode; saveTweaks(); render(); }));
+  const lnText = el('div', {});
+  lnText.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px' }}, 'Listen Mode'));
+  lnText.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Auto-play words without testing'));
+  lnRow.appendChild(lnText);
+  secListen.appendChild(lnRow);
+  if (cfg.listenMode) {
+    const lnExtra = el('div', { style:{ marginTop:'16px', paddingTop:'16px', borderTop:`1px solid ${t.border}` }});
+    const stepBtnStyle = { background:'none', border:`1px solid ${t.border}`, color:t.text,
+      fontSize:'20px', fontWeight:'400', width:'36px', height:'36px', borderRadius:'8px',
+      display:'flex', alignItems:'center', justifyContent:'center', flexShrink:'0', cursor:'pointer' };
+
+    // Duration
+    const durLabel = el('label', { style:{ ...lblStyle, marginBottom:'8px' }});
+    const durValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, fmtDur(cfg.listenDuration));
+    durLabel.appendChild(document.createTextNode('Duration — '));
+    durLabel.appendChild(durValSpan);
+    lnExtra.appendChild(durLabel);
+    const durRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
+    const durMinus = el('button', { 'aria-label':'Less', style:stepBtnStyle }, '−');
+    const durSlider = el('input', { type:'range', min:'0', max:'100', step:'1',
+      value:String(posFromDur(cfg.listenDuration)), style:{ accentColor:t.accent, flex:'1' }});
+    const durPlus = el('button', { 'aria-label':'More', style:stepBtnStyle }, '+');
+    function updateDur(pos) {
+      const p = Math.max(0, Math.min(100, pos));
+      cfg.listenDuration = durFromPos(p);
+      durSlider.value = String(p);
+      durValSpan.textContent = fmtDur(cfg.listenDuration);
+    }
+    durSlider.addEventListener('input', () => updateDur(+durSlider.value));
+    durSlider.addEventListener('change', () => saveTweaks());
+    durMinus.addEventListener('click', () => { updateDur(+durSlider.value - 1); saveTweaks(); });
+    durPlus.addEventListener('click',  () => { updateDur(+durSlider.value + 1); saveTweaks(); });
+    durRow.appendChild(durMinus); durRow.appendChild(durSlider); durRow.appendChild(durPlus);
+    lnExtra.appendChild(durRow);
+    const durRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px', padding:'0 44px' }});
+    durRange.appendChild(el('span', {}, '1 min')); durRange.appendChild(el('span', {}, '12 h'));
+    lnExtra.appendChild(durRange);
+
+    // Word Repeats
+    lnExtra.appendChild(el('div', { style:{ height:'14px' }}));
+    const repRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
+    const repLbl = el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, 'Word Repeats');
+    const repStepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
+    const repMinus = el('button', { style:stepBtnStyle }, '−');
+    const repVal = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'28px', textAlign:'center' }}, String(cfg.listenRepeat));
+    const repPlus = el('button', { style:stepBtnStyle }, '+');
+    repMinus.addEventListener('click', () => { cfg.listenRepeat = Math.max(1, cfg.listenRepeat - 1); repVal.textContent = cfg.listenRepeat; saveTweaks(); });
+    repPlus.addEventListener('click',  () => { cfg.listenRepeat = Math.min(10, cfg.listenRepeat + 1); repVal.textContent = cfg.listenRepeat; saveTweaks(); });
+    repStepper.appendChild(repMinus); repStepper.appendChild(repVal); repStepper.appendChild(repPlus);
+    repRow.appendChild(repLbl); repRow.appendChild(repStepper);
+    lnExtra.appendChild(repRow);
+
+    // Word Gap
+    lnExtra.appendChild(el('div', { style:{ height:'10px' }}));
+    const dlyRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
+    const dlyLbl = el('div', {});
+    dlyLbl.appendChild(el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, 'Word Gap'));
+    dlyLbl.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, '× standard 7-dit spacing'));
+    const dlyStepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
+    const dlyMinus = el('button', { style:stepBtnStyle }, '−');
+    const dlyVal = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'36px', textAlign:'center' }}, `${cfg.listenDelay}×`);
+    const dlyPlus = el('button', { style:stepBtnStyle }, '+');
+    dlyMinus.addEventListener('click', () => { cfg.listenDelay = Math.max(1, cfg.listenDelay - 1); dlyVal.textContent = `${cfg.listenDelay}×`; saveTweaks(); });
+    dlyPlus.addEventListener('click',  () => { cfg.listenDelay = Math.min(10, cfg.listenDelay + 1); dlyVal.textContent = `${cfg.listenDelay}×`; saveTweaks(); });
+    dlyStepper.appendChild(dlyMinus); dlyStepper.appendChild(dlyVal); dlyStepper.appendChild(dlyPlus);
+    dlyRow.appendChild(dlyLbl); dlyRow.appendChild(dlyStepper);
+    lnExtra.appendChild(dlyRow);
+
+    secListen.appendChild(lnExtra);
+  }
+  modal.appendChild(secListen);
+
   // Theme picker
   const sec6 = el('div', { style:{ marginBottom:'8px' }});
   sec6.appendChild(el('label', { style:lblStyle }, 'Theme'));
@@ -684,6 +803,55 @@ function renderSettingsModal(t) {
 
   overlay.appendChild(modal);
   return overlay;
+}
+
+// ── LISTEN SCREEN ─────────────────────────────────────────────────────────────
+function renderListen(t) {
+  const ls = state.listenState;
+  const wrap = el('div', { className:'fade-in', style:{ paddingTop:'48px', paddingBottom:'32px', textAlign:'center' }});
+  wrap.appendChild(el('div', { id:'listen-word', style:{
+    fontFamily:t.mono, fontSize:'clamp(32px, 12vw, 56px)', fontWeight:'700',
+    color:t.accent, letterSpacing:'4px', marginBottom:'28px',
+    minHeight:'72px', display:'flex', alignItems:'center', justifyContent:'center',
+  }}, ls.currentWord || '…'));
+  wrap.appendChild(el('div', { id:'listen-timer', style:{
+    fontFamily:t.mono, fontSize:'28px', fontWeight:'600',
+    color:t.text, letterSpacing:'2px', marginBottom:'12px',
+  }}, fmtHMS(ls.elapsed)));
+  wrap.appendChild(el('div', { id:'listen-count', style:{
+    fontSize:'13px', color:t.textMuted, marginBottom:'44px',
+  }}, `${ls.wordCount} word${ls.wordCount !== 1 ? 's' : ''} played`));
+  const stopBtn = el('button', { style:{
+    padding:'14px 48px', background:'none',
+    border:`2px solid ${t.wrong}`, borderRadius:'10px',
+    color:t.wrong, fontSize:'15px', fontWeight:'700', letterSpacing:'1px',
+  }}, '■ STOP');
+  stopBtn.addEventListener('click', () => stopListen());
+  wrap.appendChild(stopBtn);
+  return wrap;
+}
+
+function renderListenSummary(t) {
+  const ls = state.listenState;
+  const wrap = el('div', { className:'fade-in', style:{ paddingTop:'64px', paddingBottom:'32px', textAlign:'center' }});
+  wrap.appendChild(el('div', { style:{
+    fontFamily:t.mono, fontSize:'13px', color:t.accent,
+    letterSpacing:'4px', marginBottom:'20px',
+  }}, 'LISTEN COMPLETE'));
+  wrap.appendChild(el('div', { style:{
+    fontFamily:t.mono, fontSize:'clamp(36px, 12vw, 52px)', fontWeight:'700',
+    color:t.accent, lineHeight:'1', marginBottom:'10px',
+  }}, fmtHMS(ls.elapsed)));
+  wrap.appendChild(el('div', { style:{ fontSize:'15px', color:t.textMuted, marginBottom:'48px' }},
+    `${ls.wordCount} word${ls.wordCount !== 1 ? 's' : ''} played`));
+  const homeBtn = el('button', { style:{
+    padding:'14px 40px', background:t.accent, border:'none',
+    borderRadius:'10px', color:t.accentText, fontSize:'15px',
+    fontWeight:'700', letterSpacing:'1px',
+  }}, '← Home');
+  homeBtn.addEventListener('click', () => goSettings());
+  wrap.appendChild(homeBtn);
+  return wrap;
 }
 
 // ── PRACTICE SCREEN ───────────────────────────────────────────────────────────
@@ -944,6 +1112,13 @@ function playTestR() {
 
 function goSettings() {
   clearTimeout(state.autoPlayTimer);
+  const ls = state.listenState;
+  if (ls.active) {
+    ls.stopRequested = true;
+    ls.active = false;
+    clearInterval(ls.timerInterval);
+    if (ls._sleepResolve) { ls._sleepResolve(); ls._sleepResolve = null; }
+  }
   state.screen = 'settings';
   state.playState = 'idle';
   render();
@@ -960,6 +1135,69 @@ async function startPractice() {
   state.sessionLog = [];
   render();
   doPlay();
+}
+
+async function startListen() {
+  await unlockAudio();
+  const ls = state.listenState;
+  ls.active = true;
+  ls.elapsed = 0;
+  ls.wordCount = 0;
+  ls.currentWord = '';
+  ls.stopRequested = false;
+  ls._sleepResolve = null;
+  clearInterval(ls.timerInterval);
+  ls.timerInterval = setInterval(() => {
+    ls.elapsed++;
+    const te = document.getElementById('listen-timer');
+    if (te) te.textContent = fmtHMS(ls.elapsed);
+    if (ls.elapsed >= state.cfg.listenDuration) stopListen();
+  }, 1000);
+  state.screen = 'listen';
+  render();
+
+  const { cfg, tweaks } = state;
+  const pool = getWordPool(cfg.listKey);
+  const fwpm = cfg.farnsworth ? Math.min(cfg.fwpm, cfg.wpm) : cfg.wpm;
+  let lastWord = '';
+
+  while (!ls.stopRequested) {
+    let word;
+    do { word = pool[Math.floor(Math.random() * pool.length)]; }
+    while (word === lastWord && pool.length > 1);
+    lastWord = word;
+    ls.currentWord = word;
+    ls.wordCount++;
+
+    const we = document.getElementById('listen-word');
+    if (we) we.textContent = word;
+    const ce = document.getElementById('listen-count');
+    if (ce) ce.textContent = `${ls.wordCount} word${ls.wordCount !== 1 ? 's' : ''} played`;
+
+    for (let r = 0; r < cfg.listenRepeat; r++) {
+      if (ls.stopRequested) break;
+      await playMorseAudio(word, cfg.wpm, fwpm, tweaks.frequency);
+      if (r < cfg.listenRepeat - 1 && !ls.stopRequested) {
+        await listenSleep(7 * 1200 / cfg.wpm, ls);
+      }
+    }
+    if (ls.stopRequested) break;
+
+    await listenSleep(cfg.listenDelay * 7 * 1200 / fwpm, ls);
+  }
+
+  if (ls.active) stopListen();
+}
+
+function stopListen() {
+  const ls = state.listenState;
+  if (!ls.active) return;
+  ls.stopRequested = true;
+  ls.active = false;
+  clearInterval(ls.timerInterval);
+  if (ls._sleepResolve) { ls._sleepResolve(); ls._sleepResolve = null; }
+  state.screen = 'listenSummary';
+  render();
 }
 
 async function doPlay() {
