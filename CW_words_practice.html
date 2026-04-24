@@ -604,7 +604,10 @@ function renderHeader(t) {
     fontFamily:t.mono, fontSize:'13px', fontWeight:'700', letterSpacing:'2px',
     background:t.accent, color:t.accentText, borderRadius:'5px', padding:'2px 7px',
   }}, 'CW Words'));
-  left.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted, letterSpacing:'1px' }}, 'Practice'));
+  const screenLabel = (screen === 'listen' || screen === 'listenSummary') ? 'Listen'
+                    : (screen === 'settings') ? 'Practice & Listen'
+                    : 'Practice';
+  left.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted, letterSpacing:'1px' }}, screenLabel));
 
   const right = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
   if (progress > 0 && screen === 'practice') {
@@ -642,7 +645,7 @@ function renderSettings(t) {
   // Title block
   const titleBlock = el('div', { style:{ textAlign:'center', padding:'40px 0 44px' }});
   titleBlock.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'16px', color:t.accent, letterSpacing:'6px', marginBottom:'12px' }}, '.-- --- .-. -.. ...'));
-  titleBlock.appendChild(el('h1', { className:'h1-title', style:{ fontSize:'clamp(22px, 7vw, 32px)', fontWeight:'700', letterSpacing:'-0.5px', marginBottom:'6px' }}, 'Words Practice'));
+  titleBlock.appendChild(el('h1', { className:'h1-title', style:{ fontSize:'clamp(22px, 7vw, 32px)', fontWeight:'700', letterSpacing:'-0.5px', marginBottom:'6px' }}, 'Words Practice & Listen'));
   titleBlock.appendChild(el('p',  { style:{ color:t.textMuted, fontSize:'14px' }}, 'Morse Code Trainer'));
   wrap.appendChild(titleBlock);
 
@@ -750,8 +753,11 @@ function renderSettings(t) {
     display:'flex', alignItems:'center', justifyContent:'space-between',
     transition:'border-color 0.15s',
   }});
-  settingsToggleBtn.appendChild(el('span', {}, '⚙ More Settings'));
-  settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'12px' }}, 'Tone · Session · Farnsworth · Listen Only · Theme'));
+  const settingsLeft = el('div', {});
+  settingsLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, '⚙ More Settings'));
+  settingsLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Tone · Session · Farnsworth · Listen Only · Theme'));
+  settingsToggleBtn.appendChild(settingsLeft);
+  settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'16px' }}, '›'));
   settingsToggleBtn.addEventListener('click', () => { state.settingsOpen = true; render(); });
   settingsRow.appendChild(settingsToggleBtn);
   wrap.appendChild(settingsRow);
@@ -807,118 +813,53 @@ function renderSettingsModal(t) {
   freqLabel.appendChild(document.createTextNode('Tone Frequency — '));
   freqLabel.appendChild(freqValSpan);
   sec5.appendChild(freqLabel);
-  const freqSlider = el('input', { id:'freqSlider', type:'range', min:'400', max:'800', step:'10', value:String(tweaks.frequency),
-    style:{ accentColor:t.accent }});
+  const freqBtnStyle = { background:'none', border:`1px solid ${t.border}`, color:t.text,
+    fontSize:'20px', fontWeight:'400', width:'36px', height:'36px', borderRadius:'8px',
+    display:'flex', alignItems:'center', justifyContent:'center', flexShrink:'0', cursor:'pointer' };
+  const freqRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
+  const freqMinus = el('button', { 'aria-label':'Decrease frequency', style:freqBtnStyle }, '−');
+  const freqSlider = el('input', { id:'freqSlider', type:'range', min:'300', max:'1000', step:'10', value:String(tweaks.frequency),
+    style:{ accentColor:t.accent, flex:'1' }});
+  const freqPlus = el('button', { 'aria-label':'Increase frequency', style:freqBtnStyle }, '+');
   freqSlider.style.setProperty('--thumb-color', t.accent);
   freqSlider.style.setProperty('--track-color', t.border);
-  freqSlider.addEventListener('input', () => {
-    tweaks.frequency = +freqSlider.value; saveTweaks(); freqValSpan.textContent = `${tweaks.frequency} Hz`;
-  });
+  function updateFreq(v) {
+    tweaks.frequency = Math.max(300, Math.min(1000, Math.round(v / 10) * 10));
+    freqSlider.value = String(tweaks.frequency);
+    freqValSpan.textContent = `${tweaks.frequency} Hz`;
+    saveTweaks();
+  }
+  freqSlider.addEventListener('input', () => updateFreq(+freqSlider.value));
   freqSlider.addEventListener('change', () => { render(); playTestR(); });
-  sec5.appendChild(freqSlider);
-  const freqRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
-  freqRange.appendChild(el('span', {}, '400 Hz'));
-  freqRange.appendChild(el('span', {}, '800 Hz'));
+  freqMinus.addEventListener('click', () => { updateFreq(tweaks.frequency - 10); playTestR(); });
+  freqPlus.addEventListener('click',  () => { updateFreq(tweaks.frequency + 10); playTestR(); });
+  freqRow.appendChild(freqMinus); freqRow.appendChild(freqSlider); freqRow.appendChild(freqPlus);
+  sec5.appendChild(freqRow);
+  const freqRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px', padding:'0 44px' }});
+  freqRange.appendChild(el('span', {}, '300 Hz'));
+  freqRange.appendChild(el('span', {}, '1000 Hz'));
   sec5.appendChild(freqRange);
   modal.appendChild(sec5);
 
-  // Questions per session
-  const sec4 = el('div', { style:{ marginBottom:'20px' }});
-  sec4.appendChild(el('label', { style:lblStyle }, 'Questions per Session'));
-  const sizeRow = el('div', { style:{ display:'flex', gap:'8px' }});
-  [10, 20, 50, 100].forEach(n => {
-    const sel = cfg.sessionSize === n;
+  // Mode selector (two-block, matches home page style) — item 6
+  const secMode = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  secMode.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'10px' }}, 'Mode'));
+  const modeRowM = el('div', { style:{ display:'flex', gap:'8px' }});
+  [[false, 'Practice', 'Test your decoding'], [true, 'Listen', 'Auto-play words']].forEach(([val, label, desc]) => {
+    const sel = cfg.listenMode === val;
     const btn = el('button', { style:{
-      flex:'1', padding:'10px 4px', border:`2px solid ${sel ? t.accent : t.border}`,
-      borderRadius:'8px', background: sel ? t.accentDim : t.bgCard,
-      color: sel ? t.accent : t.text, fontSize:'14px',
-      fontWeight: sel ? '700' : '400', fontFamily:t.mono, transition:'all 0.12s',
-    }}, String(n));
-    btn.addEventListener('click', () => { cfg.sessionSize = n; saveTweaks(); render(); });
-    sizeRow.appendChild(btn);
+      flex:'1', padding:'12px 8px', border:`2px solid ${sel ? t.accent : t.border}`,
+      borderRadius:'10px', background: sel ? t.accentDim : t.bgCard,
+      color: sel ? t.accent : t.text,
+      fontWeight: sel ? '700' : '400', transition:'all 0.12s',
+      display:'flex', flexDirection:'column', alignItems:'center', gap:'4px', cursor:'pointer',
+    }});
+    btn.appendChild(el('span', { style:{ fontSize:'15px', fontWeight: sel ? '700' : '600', color: sel ? t.accent : t.text }}, label));
+    btn.appendChild(el('span', { style:{ fontSize:'11px', color: sel ? t.accent : t.textMuted, fontWeight:'400' }}, desc));
+    btn.addEventListener('click', () => { cfg.listenMode = val; saveTweaks(); render(); });
+    modeRowM.appendChild(btn);
   });
-  sec4.appendChild(sizeRow);
-  modal.appendChild(sec4);
-
-  // Farnsworth
-  const sec3 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
-  const fwRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
-  fwRow.appendChild(renderToggle(t, cfg.farnsworth, () => { cfg.farnsworth = !cfg.farnsworth; saveTweaks(); render(); }));
-  const fwText = el('div', {});
-  fwText.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px' }}, 'Farnsworth Timing'));
-  fwText.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Characters at full speed, extra space between them'));
-  fwRow.appendChild(fwText);
-  sec3.appendChild(fwRow);
-  if (cfg.farnsworth) {
-    const fwExtra = el('div', { style:{ marginTop:'16px', paddingTop:'16px', borderTop:`1px solid ${t.border}` }});
-    const fwLabel = el('label', { htmlFor:'fwSlider', style:{ ...lblStyle, marginBottom:'8px' }});
-    const fwValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, `${cfg.fwpm} WPM`);
-    fwLabel.appendChild(document.createTextNode('Spacing Speed — '));
-    fwLabel.appendChild(fwValSpan);
-    fwExtra.appendChild(fwLabel);
-    const fwSlider = el('input', { id:'fwSlider', type:'range', min:'5', max:String(cfg.wpm), step:'1', value:String(cfg.fwpm),
-      style:{ accentColor:t.accent }});
-    fwSlider.style.setProperty('--thumb-color', t.accent);
-    fwSlider.style.setProperty('--track-color', t.border);
-    fwSlider.addEventListener('input', () => { cfg.fwpm = +fwSlider.value; fwValSpan.textContent = `${cfg.fwpm} WPM`; });
-    fwSlider.addEventListener('change', () => { saveTweaks(); render(); playTestR(); });
-    fwExtra.appendChild(fwSlider);
-    const fwRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
-    fwRange.appendChild(el('span', {}, '5 WPM'));
-    fwRange.appendChild(el('span', {}, `${cfg.wpm} WPM`));
-    fwExtra.appendChild(fwRange);
-    sec3.appendChild(fwExtra);
-  }
-  modal.appendChild(sec3);
-
-  // Natural Voice
-  const secVoice = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
-  secVoice.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'12px' }}, 'Natural Voice'));
-
-  // Allow Cloud Voice toggle
-  const cloudRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'12px' }});
-  const cloudLeft = el('div', {});
-  cloudLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'13px', color:t.text }}, 'Allow Cloud Voices'));
-  cloudLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Use internet voices when no local match'));
-  cloudRow.appendChild(cloudLeft);
-  cloudRow.appendChild(renderToggle(t, cfg.allowCloudVoice, () => { cfg.allowCloudVoice = !cfg.allowCloudVoice; saveTweaks(); render(); }));
-  secVoice.appendChild(cloudRow);
-
-  // Gender selector with availability check
-  const voiceGenderRow = el('div', { style:{ display:'flex', gap:'8px' }});
-  [['female', 'Woman'], ['male', 'Man']].forEach(([val, label]) => {
-    const avail = !!findVoiceForGender(val, cfg.allowCloudVoice);
-    const sel = cfg.voiceGender === val && avail;
-    const btn = el('button', {
-      style:{
-        flex:'1', padding:'10px 4px',
-        border:`2px solid ${avail && sel ? t.accent : t.border}`,
-        borderRadius:'8px',
-        background: avail && sel ? t.accentDim : t.bgCard,
-        color: avail ? (sel ? t.accent : t.text) : t.textMuted,
-        fontSize:'14px', fontWeight: sel ? '700' : '400', fontFamily:t.mono,
-        opacity: avail ? '1' : '0.4', cursor: avail ? 'pointer' : 'not-allowed',
-        transition:'all 0.12s', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px',
-      },
-    });
-    btn.disabled = !avail;   // set DOM property, not setAttribute (avoids "disabled=false" bug)
-    btn.appendChild(el('span', {}, label));
-    if (!avail) btn.appendChild(el('span', { style:{ fontSize:'10px', color:t.textMuted }}, 'unavailable'));
-    if (avail) btn.addEventListener('click', () => { cfg.voiceGender = val; saveTweaks(); render(); });
-    voiceGenderRow.appendChild(btn);
-  });
-  secVoice.appendChild(voiceGenderRow);
-  modal.appendChild(secVoice);
-
-  // Listen Mode
-  const secListen = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
-  const lnRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
-  lnRow.appendChild(renderToggle(t, cfg.listenMode, () => { cfg.listenMode = !cfg.listenMode; saveTweaks(); render(); }));
-  const lnText = el('div', {});
-  lnText.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px' }}, 'Listen Only'));
-  lnText.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Auto-play words without testing'));
-  lnRow.appendChild(lnText);
-  secListen.appendChild(lnRow);
+  secMode.appendChild(modeRowM);
   if (cfg.listenMode) {
     const lnExtra = el('div', { style:{ marginTop:'16px', paddingTop:'16px', borderTop:`1px solid ${t.border}` }});
     const stepBtnStyle = { background:'none', border:`1px solid ${t.border}`, color:t.text,
@@ -980,9 +921,98 @@ function renderSettingsModal(t) {
     dlyRow.appendChild(dlyLbl); dlyRow.appendChild(dlyStepper);
     lnExtra.appendChild(dlyRow);
 
-    secListen.appendChild(lnExtra);
+    secMode.appendChild(lnExtra);
   }
-  modal.appendChild(secListen);
+  if (!cfg.listenMode) {
+    const prExtra = el('div', { style:{ marginTop:'16px', paddingTop:'16px', borderTop:`1px solid ${t.border}` }});
+    prExtra.appendChild(el('label', { style:{ ...lblStyle, marginBottom:'8px' }}, 'Questions per Session'));
+    const sizeRow = el('div', { style:{ display:'flex', gap:'8px' }});
+    [10, 20, 50, 100].forEach(n => {
+      const sel = cfg.sessionSize === n;
+      const btn = el('button', { style:{
+        flex:'1', padding:'10px 4px', border:`2px solid ${sel ? t.accent : t.border}`,
+        borderRadius:'8px', background: sel ? t.accentDim : t.bgCard,
+        color: sel ? t.accent : t.text, fontSize:'14px',
+        fontWeight: sel ? '700' : '400', fontFamily:t.mono, transition:'all 0.12s',
+      }}, String(n));
+      btn.addEventListener('click', () => { cfg.sessionSize = n; saveTweaks(); render(); });
+      sizeRow.appendChild(btn);
+    });
+    prExtra.appendChild(sizeRow);
+    secMode.appendChild(prExtra);
+  }
+  modal.appendChild(secMode);
+
+  // Farnsworth
+  const sec3 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  const fwRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
+  fwRow.appendChild(renderToggle(t, cfg.farnsworth, () => { cfg.farnsworth = !cfg.farnsworth; saveTweaks(); render(); }));
+  const fwText = el('div', {});
+  fwText.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px' }}, 'Farnsworth Timing'));
+  fwText.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Characters at full speed, extra space between them'));
+  fwRow.appendChild(fwText);
+  sec3.appendChild(fwRow);
+  if (cfg.farnsworth) {
+    const fwExtra = el('div', { style:{ marginTop:'16px', paddingTop:'16px', borderTop:`1px solid ${t.border}` }});
+    const fwLabel = el('label', { htmlFor:'fwSlider', style:{ ...lblStyle, marginBottom:'8px' }});
+    const fwValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, `${cfg.fwpm} WPM`);
+    fwLabel.appendChild(document.createTextNode('Spacing Speed — '));
+    fwLabel.appendChild(fwValSpan);
+    fwExtra.appendChild(fwLabel);
+    const fwSlider = el('input', { id:'fwSlider', type:'range', min:'5', max:String(cfg.wpm), step:'1', value:String(cfg.fwpm),
+      style:{ accentColor:t.accent }});
+    fwSlider.style.setProperty('--thumb-color', t.accent);
+    fwSlider.style.setProperty('--track-color', t.border);
+    fwSlider.addEventListener('input', () => { cfg.fwpm = +fwSlider.value; fwValSpan.textContent = `${cfg.fwpm} WPM`; });
+    fwSlider.addEventListener('change', () => { saveTweaks(); render(); playTestR(); });
+    fwExtra.appendChild(fwSlider);
+    const fwRange = el('div', { style:{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:t.textMuted, marginTop:'5px' }});
+    fwRange.appendChild(el('span', {}, '5 WPM'));
+    fwRange.appendChild(el('span', {}, `${cfg.wpm} WPM`));
+    fwExtra.appendChild(fwRange);
+    sec3.appendChild(fwExtra);
+  }
+  modal.appendChild(sec3);
+
+  // Natural Voice — gender selector first, then Allow Cloud toggle (item 5)
+  const secVoice = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  secVoice.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'12px' }}, 'Natural Voice'));
+
+  // Gender selector with availability check (now first)
+  const voiceGenderRow = el('div', { style:{ display:'flex', gap:'8px', marginBottom:'12px' }});
+  [['female', 'Woman'], ['male', 'Man']].forEach(([val, label]) => {
+    const avail = !!findVoiceForGender(val, cfg.allowCloudVoice);
+    const sel = cfg.voiceGender === val && avail;
+    const btn = el('button', {
+      style:{
+        flex:'1', padding:'10px 4px',
+        border:`2px solid ${avail && sel ? t.accent : t.border}`,
+        borderRadius:'8px',
+        background: avail && sel ? t.accentDim : t.bgCard,
+        color: avail ? (sel ? t.accent : t.text) : t.textMuted,
+        fontSize:'14px', fontWeight: sel ? '700' : '400', fontFamily:t.mono,
+        opacity: avail ? '1' : '0.4', cursor: avail ? 'pointer' : 'not-allowed',
+        transition:'all 0.12s', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px',
+      },
+    });
+    btn.disabled = !avail;
+    btn.appendChild(el('span', {}, label));
+    if (!avail) btn.appendChild(el('span', { style:{ fontSize:'10px', color:t.textMuted }}, 'unavailable'));
+    if (avail) btn.addEventListener('click', () => { cfg.voiceGender = val; saveTweaks(); render(); });
+    voiceGenderRow.appendChild(btn);
+  });
+  secVoice.appendChild(voiceGenderRow);
+  secVoice.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'12px 0' }}));
+
+  // Allow Cloud Voice toggle (now below gender)
+  const cloudRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
+  const cloudLeft = el('div', {});
+  cloudLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'13px', color:t.text }}, 'Allow Cloud Voices'));
+  cloudLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Use internet voices when no local match'));
+  cloudRow.appendChild(cloudLeft);
+  cloudRow.appendChild(renderToggle(t, cfg.allowCloudVoice, () => { cfg.allowCloudVoice = !cfg.allowCloudVoice; saveTweaks(); render(); }));
+  secVoice.appendChild(cloudRow);
+  modal.appendChild(secVoice);
 
   // Theme picker
   const sec6 = el('div', { style:{ marginBottom:'8px' }});
