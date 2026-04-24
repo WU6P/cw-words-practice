@@ -421,6 +421,7 @@ const state = {
     listenDelay:    _saved.listenDelay    ?? 2,
     listenVoice:      _saved.listenVoice      ?? false,
     voiceGender:      _saved.voiceGender      ?? 'female',
+    voiceRate:        _saved.voiceRate        ?? 1,
     allowCloudVoice:  _saved.allowCloudVoice  ?? false,
     saveMissedWords:  _saved.saveMissedWords  ?? true,
   },
@@ -605,7 +606,7 @@ function speakWord(text) {
   return new Promise(resolve => {
     if (!window.speechSynthesis) { resolve(); return; }
     const utt = new SpeechSynthesisUtterance(text);
-    utt.rate = 0.85;
+    utt.rate = state.cfg.voiceRate ?? 1;
     const v = getPreferredVoice();
     if (v) utt.voice = v;
     let done = false;
@@ -862,14 +863,14 @@ function renderSettings(t) {
   // Settings sub-window button
   const settingsRow = el('div', { style:{ marginBottom:'28px' }});
   const settingsToggleBtn = el('button', { className:'btn-border-hover', 'aria-haspopup':'dialog', 'aria-expanded': state.settingsOpen ? 'true' : 'false', style:{
-    width:'100%', padding:'12px 16px', background:t.bgCard,
+    width:'auto', padding:'12px 16px', background:t.bgCard,
     border:`1px solid ${t.border}`, borderRadius:'10px',
     color:t.text, fontSize:'14px', fontWeight:'600',
-    display:'flex', alignItems:'center', justifyContent:'space-between',
+    display:'flex', alignItems:'center', justifyContent:'flex-start', gap:'10px',
     transition:'border-color 0.15s',
   }});
   const settingsLeft = el('div', {});
-  settingsLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, '⚙ More Settings'));
+  settingsLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, '⚙ Settings'));
   settingsLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Tone · Session · Farnsworth · Listen Only · Theme'));
   settingsToggleBtn.appendChild(settingsLeft);
   settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'16px' }}, '›'));
@@ -1159,6 +1160,28 @@ function renderSettingsModal(t) {
       voiceGenderRow.appendChild(btn);
     });
     secVoice.appendChild(voiceGenderRow);
+    secVoice.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'12px 0' }}));
+
+    // Voice Speed selector
+    const speedRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'12px' }});
+    const speedLeft = el('div', {});
+    speedLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'13px', color:t.text }}, 'Voice Speed'));
+    speedLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Playback rate for spoken words'));
+    speedRow.appendChild(speedLeft);
+    const speedSel = el('select', {
+      style:{
+        background: t.bgCard, color: t.text, border:`1px solid ${t.border}`,
+        borderRadius:'6px', padding:'5px 8px', fontSize:'13px', fontFamily:t.mono, cursor:'pointer',
+      },
+    });
+    [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].forEach(r => {
+      const opt = el('option', { value: String(r) }, r === 1 ? '1× (normal)' : r + '×');
+      if (cfg.voiceRate === r) opt.selected = true;
+      speedSel.appendChild(opt);
+    });
+    speedSel.addEventListener('change', () => { cfg.voiceRate = parseFloat(speedSel.value); saveTweaks(); });
+    speedRow.appendChild(speedSel);
+    secVoice.appendChild(speedRow);
     secVoice.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'12px 0' }}));
 
     // Allow Cloud Voice toggle
@@ -1722,6 +1745,8 @@ async function startListen() {
 
     // Announcement beep then gap before the word
     await playListenBeep(cfg.wpm, tweaks.frequency);
+    if (ls.stopRequested) break;
+    await listenSleep(500, ls);
     if (ls.stopRequested) break;
     const stdGap = 7 * 1200 / fwpm;
 
