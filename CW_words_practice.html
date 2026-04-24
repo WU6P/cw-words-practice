@@ -426,6 +426,8 @@ const state = {
     saveMissedWords:  _saved.saveMissedWords  ?? true,
   },
   settingsOpen: false,
+  helpOpen: null,          // null | 'manual' | 'contact' | 'about'
+  helpDropdownOpen: false,
   q: null,
   playState: 'idle',         // idle | playing | ready | answered
   chosen: null,
@@ -691,8 +693,201 @@ function render() {
     document.body.appendChild(overlay);
   }
 
+  if (state.helpOpen) {
+    const helpOverlay = renderHelpModal(t);
+    helpOverlay.id = '_help-overlay';
+    document.body.appendChild(helpOverlay);
+  }
+
   // Apply body background
   document.body.style.background = t.bg;
+}
+
+// ── HELP MODAL ────────────────────────────────────────────────────────────────
+function renderHelpModal(t) {
+  const overlay = el('div', { style:{
+    position:'fixed', inset:'0', background:'#0007', zIndex:50,
+    display:'flex', alignItems:'flex-start', justifyContent:'center',
+    overflowY:'auto', padding:'24px 16px 40px',
+  }});
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) { state.helpOpen = null; render(); }
+  });
+
+  const modal = el('div', { style:{
+    background:t.bgCard, borderRadius:'16px', padding:'28px 24px',
+    width:'100%', maxWidth:'560px', position:'relative', marginTop:'16px',
+    boxShadow:'0 16px 48px #0006',
+  }});
+
+  const titles = { manual:'📖 Manual', contact:'✉ Contact', about:'ℹ About' };
+  const hdr = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'24px' }});
+  hdr.appendChild(el('span', { style:{ fontSize:'17px', fontWeight:'700', color:t.text }}, titles[state.helpOpen]));
+  const closeBtn = el('button', { 'aria-label':'Close', style:{
+    background:'none', border:'none', color:t.textMuted, fontSize:'24px', lineHeight:'1', padding:'0 4px', cursor:'pointer',
+  }}, '×');
+  closeBtn.addEventListener('click', () => { state.helpOpen = null; render(); });
+  hdr.appendChild(closeBtn);
+  modal.appendChild(hdr);
+
+  if (state.helpOpen === 'manual')  modal.appendChild(renderManualContent(t));
+  if (state.helpOpen === 'contact') modal.appendChild(renderContactContent(t));
+  if (state.helpOpen === 'about')   modal.appendChild(renderAboutContent(t));
+
+  overlay.appendChild(modal);
+  return overlay;
+}
+
+function _helpSection(t, title) {
+  return el('div', { style:{
+    fontSize:'11px', fontWeight:'700', color:t.accent,
+    letterSpacing:'1.2px', textTransform:'uppercase',
+    marginTop:'22px', marginBottom:'8px', paddingBottom:'4px',
+    borderBottom:`1px solid ${t.border}`,
+  }}, title);
+}
+function _helpPara(t, text) {
+  const p = el('p', { style:{ fontSize:'13px', color:t.textMuted, lineHeight:'1.65', marginBottom:'8px' }});
+  p.textContent = text;
+  return p;
+}
+function _helpBullet(t, label, desc) {
+  const row = el('div', { style:{ display:'flex', gap:'8px', marginBottom:'7px', alignItems:'flex-start' }});
+  const dot = el('span', { style:{ color:t.accent, flexShrink:'0', marginTop:'1px' }}, '•');
+  const txt = el('span', { style:{ fontSize:'13px', color:t.textMuted, lineHeight:'1.6' }});
+  if (label) {
+    const b = el('strong', { style:{ color:t.text, fontWeight:'600' }});
+    b.textContent = label + ' — ';
+    txt.appendChild(b);
+  }
+  txt.appendChild(document.createTextNode(desc));
+  row.appendChild(dot);
+  row.appendChild(txt);
+  return row;
+}
+
+function renderManualContent(t) {
+  const div = el('div', {});
+  const S = (title) => div.appendChild(_helpSection(t, title));
+  const P = (text)  => div.appendChild(_helpPara(t, text));
+  const B = (label, desc) => div.appendChild(_helpBullet(t, label, desc));
+
+  P('CW Words Practice is a Morse code trainer for amateur radio operators. Choose a word pool, set your speed, pick a mode, and start training.');
+
+  S('Practice Mode');
+  P('In Practice mode the app plays a word in Morse code and presents four multiple-choice answers. Select the correct word before time runs out.');
+  B('Word Pool', 'Choose from Top 100 up to Top 2000 common English words, QSO Elements (ham-radio phrases), or your personal Missed Words list.');
+  B('Character Speed', 'Sets how fast each character is sent (10–75 WPM). This is the true character rate.');
+  B('Session Size', 'Number of questions per session: 10, 20, 50, or 100. Results are shown at the end.');
+  B('Scoring', 'Correct and total answers are tracked across the session. Accuracy is shown in the header and on the summary screen.');
+  B('Replay', 'Tap the waveform card area to replay the current word at any time before answering.');
+
+  S('Listen Mode');
+  P('In Listen mode the app runs a continuous stream of Morse words — like a beacon or on-the-air practice session. No multiple choice; just listen and copy.');
+  B('Session Duration', 'How long the session runs: 5 minutes to 12 hours. A timer counts up in the header. The session ends automatically when time is up, or you can stop it early.');
+  B('Announcement Dit', 'Before each new word a soft dit (the letter E) is played at reduced volume as a "new word coming" signal, followed by a brief pause.');
+  B('Word Repeats', 'Each word is played 0–10 times. Setting 0 plays each word exactly once. Higher repeat counts give you more chances to copy the word before the next one arrives.');
+  B('Word Gap', 'The silence between words is a multiple (1×–10×) of the standard inter-word space. A larger multiplier gives you more thinking time between words. At 1× words follow at normal contest spacing; at 5–10× you get leisurely pauses suitable for slow-speed practice.');
+  B('Voice Reveal', 'When enabled, the spoken English word is announced after the first Morse play. Useful when you are learning to copy new vocabulary. The spoken word comes after the first play; subsequent repeats are Morse only.');
+
+  S('Settings — Tone');
+  B('Frequency', 'Sidetone pitch in Hz (300–1000 Hz). Default 550 Hz. Match your preferred receiver pitch.');
+  B('Tone Variation', 'When on, each word is sent on a slightly different pitch (±up to 200 Hz random offset). Simulates real on-air conditions where different stations have different pitches.');
+
+  S('Settings — Farnsworth Timing');
+  P('Farnsworth spacing sends each character at full character speed but increases the space between characters and words. This lets you hear the correct rhythm of each character without needing to copy at high overall speed.');
+  B('Spacing Speed', 'Sets the effective spacing rate (5 WPM minimum, up to the character speed). Lower values give wider gaps between characters. The character speed slider sets the dit length; the spacing speed slider controls pauses.');
+
+  S('Settings — Voice Reveal');
+  B('Gender', 'Choose Woman or Man voice. The app selects the best available voice in that category from your device\'s speech synthesis engine.');
+  B('Voice Speed', 'Playback rate for the spoken word (0.5× slow to 2× fast). Default 1×.');
+  B('Allow Cloud Voices', 'On iOS and macOS, enabling this allows the system to use higher-quality cloud-based voices (requires internet). When off, only locally stored voices are used — works offline and is faster.');
+
+  S('Settings — Session (Practice)');
+  B('Questions per Session', 'Choose 10, 20, 50, or 100 questions. After the last question the session summary is shown with your score and missed word list.');
+
+  S('Missed Words');
+  P('When "Save Missed Words" is enabled (on by default), every word you answer incorrectly is recorded with a miss counter. The counter increments each time you miss the same word again, and decrements by one each time you get it right.');
+  P('The Missed Words word pool draws from your personal missed list. Words with higher miss counts appear more frequently, so the hardest words get the most practice. When a word\'s miss count reaches zero it is removed from the list.');
+  P('Use "Clear Saved Words" in Settings to wipe the missed list and start fresh.');
+
+  S('Settings — Theme');
+  B('Shack', 'Dark amber theme inspired by a classic radio shack. Easy on the eyes in a dimly lit room.');
+  B('Clean', 'Light theme with high contrast. Good for daylight use.');
+  B('Terminal', 'Dark green-on-black terminal look. For the die-hard CW operators.');
+
+  return div;
+}
+
+function renderContactContent(t) {
+  const div = el('div', {});
+
+  div.appendChild(_helpPara(t, 'For questions, feedback, or bug reports, contact the developer:'));
+
+  const card = el('div', { style:{
+    marginTop:'16px', padding:'20px', background:t.bg,
+    border:`1px solid ${t.border}`, borderRadius:'10px',
+    display:'flex', flexDirection:'column', gap:'10px',
+  }});
+
+  const nameRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'10px' }});
+  nameRow.appendChild(el('span', { style:{ fontSize:'20px' }}, '📻'));
+  const nameBlock = el('div', {});
+  nameBlock.appendChild(el('div', { style:{ fontSize:'15px', fontWeight:'700', color:t.text }}, 'Nianfeng Li, WU6P'));
+  nameBlock.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Amateur Radio Operator'));
+  nameRow.appendChild(nameBlock);
+  card.appendChild(nameRow);
+
+  const emailRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'10px', paddingTop:'8px', borderTop:`1px solid ${t.border}` }});
+  emailRow.appendChild(el('span', { style:{ fontSize:'16px' }}, '✉'));
+  const emailLink = el('a', { href:'mailto:nian.wu6p@gmail.com', style:{
+    fontSize:'14px', color:t.accent, textDecoration:'none', fontFamily:t.mono,
+  }}, 'nian.wu6p@gmail.com');
+  emailRow.appendChild(emailLink);
+  card.appendChild(emailRow);
+
+  div.appendChild(card);
+  return div;
+}
+
+function renderAboutContent(t) {
+  const div = el('div', {});
+
+  const logoRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'14px', marginBottom:'20px' }});
+  logoRow.appendChild(el('span', { style:{
+    fontFamily:t.mono, fontSize:'14px', fontWeight:'700', letterSpacing:'2px',
+    background:t.accent, color:t.accentText, borderRadius:'6px', padding:'4px 10px',
+  }}, 'CW Words'));
+  const titleBlock = el('div', {});
+  titleBlock.appendChild(el('div', { style:{ fontSize:'15px', fontWeight:'700', color:t.text }}, 'CW Words Practice'));
+  titleBlock.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Morse Code Trainer'));
+  logoRow.appendChild(titleBlock);
+  div.appendChild(logoRow);
+
+  const infoBox = el('div', { style:{
+    background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'16px 20px',
+    display:'flex', flexDirection:'column', gap:'10px',
+  }});
+  function infoRow(label, value) {
+    const row = el('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'center' }});
+    row.appendChild(el('span', { style:{ fontSize:'12px', color:t.textMuted }}, label));
+    row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
+    infoBox.appendChild(row);
+  }
+  infoRow('Version', '1.0');
+  infoRow('Platform', 'Progressive Web App');
+  infoRow('Audio', 'Web Audio API');
+  div.appendChild(infoBox);
+
+  const copyrightBox = el('div', { style:{
+    marginTop:'20px', padding:'16px', background:t.accentDim,
+    border:`1px solid ${t.accent}44`, borderRadius:'10px', textAlign:'center',
+  }});
+  copyrightBox.appendChild(el('div', { style:{ fontSize:'13px', color:t.text, fontWeight:'600' }}, 'Copyright © 2026 Nianfeng Li, WU6P'));
+  copyrightBox.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'4px' }}, 'All rights reserved'));
+  div.appendChild(copyrightBox);
+
+  return div;
 }
 
 // ── HEADER ────────────────────────────────────────────────────────────────────
@@ -747,6 +942,52 @@ function renderHeader(t) {
     }}, `${acc}%`));
     right.appendChild(scoreDiv);
   }
+
+  // Help dropdown
+  const helpWrap = el('div', { style:{ position:'relative' }});
+  const helpBtn = el('button', { 'aria-haspopup':'menu', style:{
+    background:'none', border:`1px solid ${t.border}`, color:t.textMuted,
+    fontSize:'12px', padding:'5px 10px', borderRadius:'6px', fontWeight:'500',
+    display:'flex', alignItems:'center', gap:'4px',
+  }});
+  helpBtn.appendChild(document.createTextNode('Help'));
+  helpBtn.appendChild(el('span', { style:{ fontSize:'9px', opacity:'0.7' }}, '▾'));
+  helpBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.helpDropdownOpen = !state.helpDropdownOpen;
+    render();
+  });
+  helpWrap.appendChild(helpBtn);
+  if (state.helpDropdownOpen) {
+    const ddOverlay = el('div', { style:{
+      position:'fixed', inset:'0', zIndex:29,
+    }});
+    ddOverlay.addEventListener('click', () => { state.helpDropdownOpen = false; render(); });
+    document.body.appendChild(ddOverlay);
+    const dd = el('div', { style:{
+      position:'absolute', top:'calc(100% + 6px)', right:'0',
+      background:t.bgCard, border:`1px solid ${t.border}`, borderRadius:'8px',
+      padding:'4px', zIndex:30, minWidth:'130px',
+      boxShadow:'0 8px 24px #0005',
+    }});
+    [['manual','📖 Manual'],['contact','✉ Contact'],['about','ℹ About']].forEach(([key, label]) => {
+      const item = el('button', { style:{
+        display:'block', width:'100%', textAlign:'left', padding:'9px 14px',
+        background:'none', border:'none', color:t.text, fontSize:'13px',
+        borderRadius:'6px', fontWeight:'500',
+      }}, label);
+      item.addEventListener('mouseenter', () => item.style.background = t.border);
+      item.addEventListener('mouseleave', () => item.style.background = 'none');
+      item.addEventListener('click', () => {
+        state.helpDropdownOpen = false;
+        state.helpOpen = key;
+        render();
+      });
+      dd.appendChild(item);
+    });
+    helpWrap.appendChild(dd);
+  }
+  right.appendChild(helpWrap);
 
   hdr.appendChild(left);
   hdr.appendChild(right);
@@ -863,7 +1104,7 @@ function renderSettings(t) {
   // Settings sub-window button
   const settingsRow = el('div', { style:{ marginBottom:'28px' }});
   const settingsToggleBtn = el('button', { className:'btn-border-hover', 'aria-haspopup':'dialog', 'aria-expanded': state.settingsOpen ? 'true' : 'false', style:{
-    width:'auto', padding:'12px 16px', background:t.bgCard,
+    width:'100%', padding:'12px 16px', background:t.bgCard,
     border:`1px solid ${t.border}`, borderRadius:'10px',
     color:t.text, fontSize:'14px', fontWeight:'600',
     display:'flex', alignItems:'center', justifyContent:'flex-start', gap:'10px',
