@@ -126,51 +126,56 @@ function getCtx() {
 function playMorseAudio(text, charWpm, effectiveWpm, frequency) {
   return new Promise(resolve => {
     const ctx = getCtx();
+    const sr  = ctx.sampleRate;
     const dit = 1.2 / charWpm;
     const charUnitsTime = 31 * dit;
-    const totalWordTime = 60 / effectiveWpm;
+    const totalWordTime  = 60 / effectiveWpm;
     const gapUnit = Math.max(dit, (totalWordTime - charUnitsTime) / 19);
 
-    // Single oscillator + gain; all transitions use linearRamp so the gain
-    // curve is strictly continuous — setValueAtTime mid-stream causes
-    // instantaneous steps that click against non-zero sine samples.
-    const osc  = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.frequency.value = frequency;
-    osc.type = 'sine';
-
-    const now = ctx.currentTime;
-    gain.gain.setValueAtTime(0, now);           // anchor at current time
-
-    let t = now + 0.15;                         // 150 ms scheduling headroom
-    gain.gain.linearRampToValueAtTime(0, t);    // hold silence until first symbol
-
-    const words = text.trim().split(/\s+/);
-    words.forEach((word, wi) => {
+    // Collect symbol timings first, then render all samples into a buffer.
+    // Pre-computed PCM has no gain-automation events and no oscillator
+    // start/stop — eliminating the WebAudio scheduling glitches entirely.
+    const syms = [];   // [startSec, durSec]
+    let tSec = 0;
+    text.trim().split(/\s+/).forEach((word, wi, arr) => {
       tokenize(word).forEach(char => {
         const code = MORSE[char];
         if (!code) return;
         [...code].forEach(sym => {
           const dur = sym === '.' ? dit : dit * 3;
-          const ramp = Math.min(0.006, dur * 0.15);
-          // All ramps — no setValueAtTime — so gain is always continuous.
-          // Inter-symbol silence: prev ramp ends at 0, this anchors 0 at t.
-          gain.gain.linearRampToValueAtTime(0,    t);
-          gain.gain.linearRampToValueAtTime(0.42, t + ramp);
-          gain.gain.linearRampToValueAtTime(0.42, t + dur - ramp);
-          gain.gain.linearRampToValueAtTime(0,    t + dur);
-          t += dur + dit;
+          syms.push([tSec, dur]);
+          tSec += dur + dit;
         });
-        t += 3 * gapUnit - dit;
+        tSec += 3 * gapUnit - dit;
       });
-      if (wi < words.length - 1) t += 4 * gapUnit;
+      if (wi < arr.length - 1) tSec += 4 * gapUnit;
     });
 
-    osc.start(now);
-    osc.stop(t + 0.05);
-    osc.onended = () => { osc.disconnect(); gain.disconnect(); };
-    setTimeout(resolve, (t - ctx.currentTime) * 1000 + 300);
+    if (!syms.length) { resolve(); return; }
+
+    const totalSamples = Math.ceil(tSec * sr);
+    const buf  = ctx.createBuffer(1, totalSamples, sr);
+    const data = buf.getChannelData(0);          // Float32Array, pre-zeroed
+    const twoPiF = 2 * Math.PI * frequency;
+
+    for (const [symStart, dur] of syms) {
+      const ramp = Math.min(0.006, dur * 0.15);
+      const s0 = Math.round(symStart * sr);
+      const s1 = Math.min(Math.round((symStart + dur) * sr), totalSamples);
+      const ri = Math.max(1, Math.round(ramp * sr));
+      const n  = s1 - s0;
+      for (let i = 0; i < n; i++) {
+        const env = i < ri ? i / ri : (n - i) < ri ? (n - i) / ri : 1.0;
+        data[s0 + i] = 0.42 * env * Math.sin(twoPiF * (s0 + i) / sr);
+      }
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(ctx.currentTime + 0.05);
+    src.onended = () => src.disconnect();
+    setTimeout(resolve, (tSec + 0.3) * 1000);
   });
 }
 
@@ -392,23 +397,23 @@ function posFromDur(s) { return Math.round(100 * Math.log(s / 60) / Math.log(720
 function playListenBeep(charWpm, frequency) {
   return new Promise(resolve => {
     const ctx = getCtx();
-    const dit = 1.2 / charWpm;
-    const now = ctx.currentTime;
-    const t = now + 0.05;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.frequency.value = frequency + 100;
-    osc.type = 'sine';
-    const ramp = Math.min(0.006, dit * 0.15);
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0,    t);
-    gain.gain.linearRampToValueAtTime(0.21, t + ramp);
-    gain.gain.linearRampToValueAtTime(0.21, t + dit - ramp);
-    gain.gain.linearRampToValueAtTime(0,    t + dit);
-    osc.start(now); osc.stop(t + dit + 0.05);
-    osc.onended = () => { osc.disconnect(); gain.disconnect(); };
-    setTimeout(resolve, (t - now + dit + 0.05) * 1000 + 80);
+    const sr  = ctx.sampleRate;
+    const dit  = 1.2 / charWpm;
+    const n    = Math.ceil(dit * sr);
+    const buf  = ctx.createBuffer(1, n, sr);
+    const data = buf.getChannelData(0);
+    const twoPiF = 2 * Math.PI * (frequency + 100);
+    const ri = Math.max(1, Math.round(Math.min(0.006, dit * 0.15) * sr));
+    for (let i = 0; i < n; i++) {
+      const env = i < ri ? i / ri : (n - i) < ri ? (n - i) / ri : 1.0;
+      data[i] = 0.21 * env * Math.sin(twoPiF * i / sr);
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(ctx.currentTime + 0.05);
+    src.onended = () => src.disconnect();
+    setTimeout(resolve, (dit + 0.15) * 1000);
   });
 }
 function listenSleep(ms, ls) {
