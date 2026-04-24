@@ -293,9 +293,13 @@ const LIST_OPTS = [
   {key:'top1751_2000', label:'Top 1751–2000'},
   {key:'top2000',      label:'Top 2000 Words'},
   {key:'qso',          label:'QSO Phrases'},
+  {key:'missed',       label:'Missed Words'},
 ];
 
-function getWordPool(key) { return WORDS[key] || WORDS.top100; }
+function getWordPool(key) {
+  if (key === 'missed') return state._missedSessionPool || [];
+  return WORDS[key] || WORDS.top100;
+}
 
 // ── DISTRACTOR SIMILARITY ─────────────────────────────────────────────────────
 // Confusable morse character pairs (bidirectional)
@@ -418,6 +422,7 @@ const state = {
     listenVoice:      _saved.listenVoice      ?? false,
     voiceGender:      _saved.voiceGender      ?? 'female',
     allowCloudVoice:  _saved.allowCloudVoice  ?? false,
+    saveMissedWords:  _saved.saveMissedWords  ?? true,
   },
   settingsOpen: false,
   q: null,
@@ -426,6 +431,7 @@ const state = {
   score: { c:0, t:0 },
   sessionLog: [],
   tweaks: { theme: _saved.theme ?? 'clean', frequency: _saved.frequency ?? 550, toneVariation: _saved.toneVariation ?? false },
+  _missedSessionPool: null,  // snapshot of missed words at session start
   playing: false,            // mutex
   replaying: false,          // silent replay in progress
   autoPlayTimer: null,
@@ -435,6 +441,46 @@ const state = {
 
 function saveTweaks() {
   localStorage.setItem('cw_tweaks', JSON.stringify({ ...state.tweaks, ...state.cfg }));
+}
+
+// ── MISSED WORDS STORE ────────────────────────────────────────────────────────
+const MISSED_KEY = 'cw_missed_words';
+
+function loadMissedWordsData() {
+  try { return JSON.parse(localStorage.getItem(MISSED_KEY)) || {}; }
+  catch { return {}; }
+}
+function saveMissedWordsData(data) {
+  localStorage.setItem(MISSED_KEY, JSON.stringify(data));
+}
+function getMissedWordsList() {
+  const data = loadMissedWordsData();
+  // Sort by depth descending so highest-depth (most-missed) words appear first
+  return Object.entries(data).sort((a, b) => b[1] - a[1]).map(([w]) => w);
+}
+function clearMissedWords() {
+  localStorage.removeItem(MISSED_KEY);
+}
+function updateMissedWords(sessionLog) {
+  if (!state.cfg.saveMissedWords) return;
+  const data = loadMissedWordsData();
+  // Count wrong and correct hits per word across the whole session
+  const wrongCounts = {}, rightCounts = {};
+  for (const e of sessionLog) {
+    const w = e.word.toLowerCase();
+    if (!e.correct) wrongCounts[w] = (wrongCounts[w] || 0) + 1;
+    else            rightCounts[w] = (rightCounts[w] || 0) + 1;
+  }
+  // Wrong words: add at depth 2 or reset to 2
+  for (const w of Object.keys(wrongCounts)) { data[w] = 2; }
+  // Correct words: each correct hit decrements depth by 1
+  for (const [w, count] of Object.entries(rightCounts)) {
+    if (data[w] !== undefined) {
+      data[w] -= count;
+      if (data[w] <= 0) delete data[w];
+    }
+  }
+  saveMissedWordsData(data);
 }
 function pickWordTone() {
   const base = state.tweaks.frequency;
@@ -630,6 +676,7 @@ function render() {
   else if (state.screen === 'summary') inner.appendChild(renderSummary(t));
   else if (state.screen === 'listen') inner.appendChild(renderListen(t));
   else if (state.screen === 'listenSummary') inner.appendChild(renderListenSummary(t));
+  else if (state.screen === 'missedEmpty') inner.appendChild(renderMissedEmpty(t));
 
   body.appendChild(inner);
   wrap.appendChild(body);
@@ -1125,6 +1172,41 @@ function renderSettingsModal(t) {
   }
   modal.appendChild(secVoice);
 
+  // Save Missed Words
+  const secMissed = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  const missedHdrRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
+  const missedLeft = el('div', {});
+  missedLeft.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'2px' }}, 'Save Missed Words'));
+  missedLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Track missed words for targeted practice'));
+  missedHdrRow.appendChild(missedLeft);
+  missedHdrRow.appendChild(renderToggle(t, cfg.saveMissedWords, () => { cfg.saveMissedWords = !cfg.saveMissedWords; saveTweaks(); render(); }));
+  secMissed.appendChild(missedHdrRow);
+  if (!cfg.saveMissedWords) {
+    secMissed.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'14px 0' }}));
+    const missedData = loadMissedWordsData();
+    const missedCount = Object.keys(missedData).length;
+    const clearRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
+    clearRow.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted }},
+      missedCount > 0 ? `${missedCount} word${missedCount !== 1 ? 's' : ''} saved` : 'No saved words'));
+    const clearBtn = el('button', { style:{
+      padding:'7px 14px', background:'none', border:`1px solid ${t.wrong}`,
+      borderRadius:'8px', color:t.wrong, fontSize:'12px', fontWeight:'600',
+      cursor: missedCount > 0 ? 'pointer' : 'not-allowed',
+      opacity: missedCount > 0 ? '1' : '0.4',
+    }});
+    clearBtn.textContent = 'Clear Saved';
+    clearBtn.disabled = missedCount === 0;
+    clearBtn.addEventListener('click', () => {
+      if (confirm(`Clear all ${missedCount} saved missed words? This cannot be undone.`)) {
+        clearMissedWords();
+        render();
+      }
+    });
+    clearRow.appendChild(clearBtn);
+    secMissed.appendChild(clearRow);
+  }
+  modal.appendChild(secMissed);
+
   // Theme picker
   const sec6 = el('div', { style:{ marginBottom:'8px' }});
   sec6.appendChild(el('label', { style:lblStyle }, 'Theme'));
@@ -1420,6 +1502,51 @@ function renderSummary(t) {
   });
   wrap.appendChild(cols);
 
+  // Missed words section — rich stats card for Missed Words sessions, simple note otherwise
+  if (state.cfg.listKey === 'missed' && state.cfg.saveMissedWords) {
+    const mdata = loadMissedWordsData();
+    const mTotal = Object.keys(mdata).length;
+    const mDepth1 = Object.values(mdata).filter(d => d === 1).length;
+    const mCard = el('div', { style:{
+      background:t.bgCard, border:`1px solid ${t.border}`, borderRadius:'12px',
+      padding:'16px', marginBottom:'16px',
+    }});
+    mCard.appendChild(el('div', { style:{
+      fontSize:'11px', fontWeight:'700', color:t.textMuted, letterSpacing:'2px',
+      textTransform:'uppercase', marginBottom:'10px',
+    }}, 'Practice List Status'));
+    const mRow1 = el('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:'6px' }});
+    mRow1.appendChild(el('span', { style:{ fontSize:'14px', color:t.text }}, 'Words remaining'));
+    mRow1.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'700', color:t.accent }}, String(mTotal)));
+    mCard.appendChild(mRow1);
+    const mRow2 = el('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:'14px' }});
+    mRow2.appendChild(el('span', { style:{ fontSize:'14px', color:t.text }}, 'At depth 1 (one more correct removes)'));
+    mRow2.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'700', color:t.accent }}, String(mDepth1)));
+    mCard.appendChild(mRow2);
+    const clearAllBtn = el('button', { style:{
+      display:'inline-block', padding:'7px 14px', background:'none',
+      border:`1px solid ${mTotal > 0 ? t.wrong : t.border}`, borderRadius:'8px',
+      color: mTotal > 0 ? t.wrong : t.textMuted, fontSize:'13px', fontWeight:'600',
+      cursor: mTotal > 0 ? 'pointer' : 'not-allowed', opacity: mTotal > 0 ? '1' : '0.4',
+    }}, 'Clear All Missed Words');
+    clearAllBtn.disabled = mTotal === 0;
+    clearAllBtn.addEventListener('click', () => {
+      if (confirm(`Clear all ${mTotal} saved missed words? This cannot be undone.`)) {
+        clearMissedWords();
+        render();
+      }
+    });
+    const clearRow = el('div', { style:{ textAlign:'right' }});
+    clearRow.appendChild(clearAllBtn);
+    mCard.appendChild(clearRow);
+    wrap.appendChild(mCard);
+  } else if (state.cfg.saveMissedWords && wrongWords.length > 0) {
+    wrap.appendChild(el('div', { style:{
+      textAlign:'center', fontSize:'12px', color:t.textMuted,
+      marginBottom:'16px', fontFamily:t.mono, letterSpacing:'1px',
+    }}, `${wrongWords.length} missed word${wrongWords.length !== 1 ? 's' : ''} saved to practice list`));
+  }
+
   // Action buttons
   const actions = el('div', { style:{ display:'flex', gap:'10px' }});
   const settingsBtn = el('button', { className:'btn-border-hover', style:{
@@ -1435,6 +1562,30 @@ function renderSummary(t) {
   actions.appendChild(settingsBtn);
   actions.appendChild(againBtn);
   wrap.appendChild(actions);
+  return wrap;
+}
+
+// ── MISSED EMPTY SCREEN ───────────────────────────────────────────────────────
+function renderMissedEmpty(t) {
+  const wrap = el('div', { className:'fade-in', style:{ paddingTop:'64px', paddingBottom:'32px', textAlign:'center' }});
+  wrap.appendChild(el('div', { style:{
+    fontFamily:t.mono, fontSize:'28px', fontWeight:'700', color:t.textMuted,
+    letterSpacing:'6px', marginBottom:'24px',
+  }}, '. . . . .'));
+  wrap.appendChild(el('div', { style:{
+    fontSize:'20px', fontWeight:'700', color:t.text, marginBottom:'12px',
+  }}, 'No Missed Words'));
+  wrap.appendChild(el('div', { style:{
+    fontSize:'14px', color:t.textMuted, lineHeight:'1.6',
+    maxWidth:'280px', margin:'0 auto 40px',
+  }}, 'Your missed words list is empty. Complete a practice session to start building your list.'));
+  const homeBtn = el('button', { style:{
+    padding:'14px 32px', background:t.accent, border:'none',
+    borderRadius:'10px', color:t.accentText, fontSize:'14px', fontWeight:'700',
+    letterSpacing:'1px',
+  }}, '← Home');
+  homeBtn.addEventListener('click', goSettings);
+  wrap.appendChild(homeBtn);
   return wrap;
 }
 
@@ -1506,6 +1657,19 @@ function goSettings() {
 async function startPractice() {
   await unlockAudio();          // iOS audio unlock — must stay within gesture handler
   clearTimeout(state.autoPlayTimer);
+
+  if (state.cfg.listKey === 'missed') {
+    const missedList = getMissedWordsList();
+    if (missedList.length === 0) {
+      state.screen = 'missedEmpty';
+      render();
+      return;
+    }
+    state._missedSessionPool = missedList;
+  } else {
+    state._missedSessionPool = null;
+  }
+
   state.q = makeQuestion(state.cfg.listKey);
   state.chosen = null;
   state.screen = 'practice';
@@ -1817,7 +1981,7 @@ function handleAnswer(choice) {
   if (ok) {
     if (state.cfg.listenVoice) speakWord(choice);
     setTimeout(() => {
-      if (sessionDone) { state.screen = 'summary'; render(); return; }
+      if (sessionDone) { updateMissedWords(state.sessionLog); state.screen = 'summary'; render(); return; }
       handleNext();
     }, 1100);
   } else {
