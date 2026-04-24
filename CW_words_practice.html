@@ -446,6 +446,9 @@ function listenSleep(ms, ls) {
 function render() {
   const root = document.getElementById('root');
   root.innerHTML = '';
+  // Remove any previously mounted settings modal overlay
+  const _oldOverlay = document.getElementById('_settings-overlay');
+  if (_oldOverlay) _oldOverlay.remove();
   const t = T();
   // Push theme colours to CSS variables for hover/focus rules (S4, S5)
   document.documentElement.style.setProperty('--t-accent',   t.accent);
@@ -488,6 +491,14 @@ function render() {
   body.appendChild(inner);
   wrap.appendChild(body);
   root.appendChild(wrap);
+
+  // Mount settings modal on document.body so position:fixed is viewport-relative
+  // (mounting inside .fade-in breaks fixed positioning due to CSS transform)
+  if (state.screen === 'settings' && state.settingsOpen) {
+    const overlay = renderSettingsModal(t);
+    overlay.id = '_settings-overlay';
+    document.body.appendChild(overlay);
+  }
 
   // Apply body background
   document.body.style.background = t.bg;
@@ -586,7 +597,7 @@ function renderSettings(t) {
   // Character Speed
   const sec2 = el('div', { style:{ marginBottom:'28px' }});
   const wpmLabel = el('label', { style:lblStyle });
-  const wpmValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono};font-size:20px;font-weight:700` }, `${cfg.wpm} WPM`);
+  const wpmValSpan = el('span', { style:{ color:t.accent, fontFamily:t.mono, fontSize:'20px', fontWeight:'700' }}, `${cfg.wpm} WPM`);
   wpmLabel.appendChild(document.createTextNode('Character Speed — '));
   wpmLabel.appendChild(wpmValSpan);
   sec2.appendChild(wpmLabel);
@@ -658,11 +669,6 @@ function renderSettings(t) {
   }}, isListen ? 'START LISTENING' : 'START PRACTICE');
   startBtn.addEventListener('click', () => isListen ? startListen() : startPractice());
   wrap.appendChild(startBtn);
-
-  // Settings modal overlay
-  if (state.settingsOpen) {
-    wrap.appendChild(renderSettingsModal(t));
-  }
 
   return wrap;
 }
