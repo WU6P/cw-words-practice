@@ -586,7 +586,7 @@ function renderSettings(t) {
   // Character Speed
   const sec2 = el('div', { style:{ marginBottom:'28px' }});
   const wpmLabel = el('label', { style:lblStyle });
-  const wpmValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono}` }, `${cfg.wpm} WPM`);
+  const wpmValSpan = el('span', { style:`color:${t.accent};font-family:${t.mono};font-size:20px;font-weight:700` }, `${cfg.wpm} WPM`);
   wpmLabel.appendChild(document.createTextNode('Character Speed — '));
   wpmLabel.appendChild(wpmValSpan);
   sec2.appendChild(wpmLabel);
@@ -683,7 +683,7 @@ function renderSettingsModal(t) {
   const modal = el('div', { role:'dialog', 'aria-modal':'true', 'aria-labelledby':'modal-title', style:{
     background:t.bgCard, border:`1px solid ${t.border}`,
     borderRadius:'14px', padding:'20px 20px 24px', width:'100%',
-    maxWidth:'480px', maxHeight:'85vh', overflowY:'auto',
+    maxWidth:'480px',
   }});
 
   // Modal header
@@ -815,7 +815,7 @@ function renderSettingsModal(t) {
     lnExtra.appendChild(el('div', { style:{ height:'14px' }}));
     const repRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
     const repLbl = el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, 'Word Repeats');
-    const repStepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px', width:'120px', justifyContent:'flex-end' }});
+    const repStepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px', width:'120px', flexShrink:'0', justifyContent:'flex-end' }});
     const repMinus = el('button', { style:stepBtnStyle }, '−');
     const repVal = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'32px', textAlign:'center' }}, String(cfg.listenRepeat));
     const repPlus = el('button', { style:stepBtnStyle }, '+');
@@ -829,7 +829,7 @@ function renderSettingsModal(t) {
     lnExtra.appendChild(el('div', { style:{ height:'10px' }}));
     const dlyRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
     const dlyLbl = el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, 'Word Gap');
-    const dlyStepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px', width:'120px', justifyContent:'flex-end' }});
+    const dlyStepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px', width:'120px', flexShrink:'0', justifyContent:'flex-end' }});
     const dlyMinus = el('button', { style:stepBtnStyle }, '−');
     const dlyVal = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'32px', textAlign:'center' }}, String(cfg.listenDelay));
     const dlyPlus = el('button', { style:stepBtnStyle }, '+');
