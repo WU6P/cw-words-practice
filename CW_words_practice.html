@@ -1054,11 +1054,11 @@ function renderSettings(t) {
 
   // Character Speed
   const sec2 = el('div', { style:{ marginBottom:'28px' }});
-  const wpmLabel = el('label', { style:lblStyle });
-  const wpmValSpan = el('span', { style:{ color:t.accent, fontFamily:t.mono, fontSize:'20px', fontWeight:'700' }}, `${cfg.wpm} WPM`);
-  wpmLabel.appendChild(document.createTextNode('Character Speed — '));
-  wpmLabel.appendChild(wpmValSpan);
-  sec2.appendChild(wpmLabel);
+  const wpmLabelRow = el('div', { style:{ position:'relative', display:'flex', alignItems:'center', marginBottom:'10px' }});
+  wpmLabelRow.appendChild(el('span', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, 'Character Speed'));
+  const wpmValSpan = el('span', { style:{ position:'absolute', left:'50%', transform:'translateX(-50%)', color:t.accent, fontFamily:t.mono, fontSize:'20px', fontWeight:'700', whiteSpace:'nowrap' }}, `${cfg.wpm} WPM`);
+  wpmLabelRow.appendChild(wpmValSpan);
+  sec2.appendChild(wpmLabelRow);
   const wpmRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
   const btnStyle = { background:'none', border:`1px solid ${t.border}`, color:t.text,
     fontSize:'20px', fontWeight:'400', width:'36px', height:'36px', borderRadius:'8px',
@@ -1597,7 +1597,7 @@ function renderPractice(t) {
   const wpmLabel = state.cfg.farnsworth ? `${state.cfg.wpm}/${state.cfg.fwpm} WPM` : `${state.cfg.wpm} WPM`;
   const headerRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', gap:'10px', marginBottom:'16px' }});
   headerRow.appendChild(el('span', { style:{ fontSize:'12px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, sessionLabel));
-  headerRow.appendChild(el('span', { style:{ fontSize:'20px', fontWeight:'600', color:t.accent, letterSpacing:'1px' }}, wpmLabel));
+  headerRow.appendChild(el('span', { style:{ fontSize:'12px', fontWeight:'600', color:t.accent, letterSpacing:'1.5px' }}, wpmLabel));
   wrap.appendChild(headerRow);
 
   // Play card
@@ -2231,6 +2231,8 @@ function transitionToPlaying() {
   if (statusEl) { statusEl.textContent = 'Listening…'; statusEl.style.color = t.accent; statusEl.style.fontWeight = '500'; statusEl.style.fontSize = '13px'; }
   const revealEl = document.getElementById('cw-reveal');
   if (revealEl) revealEl.remove();
+  const wrongActEl = document.getElementById('cw-wrong-actions');
+  if (wrongActEl) wrongActEl.remove();
   const gridEl = document.getElementById('cw-choices');
   if (gridEl) {
     gridEl.style.opacity = '0';
