@@ -337,8 +337,8 @@ function makeQuestion(listKey) {
     .map(w => ({ w, s: wordSimilarity(correct, w), ht: headTailSimilar(correct, w) }))
     .sort((a, b) => b.s - a.s);
 
-  // Priority: head+tail similar candidates get guaranteed slots (best score first, cap 5)
-  const priority = ranked.filter(x => x.ht);
+  // Priority: head+tail similar AND length within ±2 of correct word
+  const priority = ranked.filter(x => x.ht && Math.abs(x.w.length - correct.length) <= 2);
   const others   = ranked.filter(x => !x.ht);
 
   const selected = [];
