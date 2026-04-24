@@ -1,4 +1,4 @@
-const CACHE = 'cw-practice-v1';
+const CACHE = 'cw-practice-v2';
 const ASSETS = [
   './CW_words_practice.html',
   './manifest.json',
@@ -6,9 +6,7 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
-  );
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
 });
 
 self.addEventListener('activate', e => {
@@ -17,6 +15,12 @@ self.addEventListener('activate', e => {
       Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
+});
+
+// The page posts this after the user accepts the update banner; we then take
+// over active clients and the page reloads via its controllerchange handler.
+self.addEventListener('message', e => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('fetch', e => {

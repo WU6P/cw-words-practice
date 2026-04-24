@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#d4900a">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon.svg">
@@ -17,7 +17,12 @@ input[type=range] { -webkit-appearance: none; appearance: none; height: 22px; ba
 input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--track-color, #555); }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 22px; border-radius: 3px; cursor: pointer; background: var(--thumb-color, #888); margin-top: -9px; }
 
-button { cursor: pointer; font-family: inherit; }
+button { cursor: pointer; font-family: inherit; touch-action: manipulation; }
+
+/* ── SAFE-AREA INSETS (iOS notch / home-bar) ──────────────────────────────── */
+body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+.sa-top    { padding-top:  env(safe-area-inset-top); }
+.sa-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
 /* ── ANIMATIONS ───────────────────────────────────────────────────────────── */
 @keyframes pulse    { 0%,100%{transform:scaleY(0.3)} 50%{transform:scaleY(1)} }
@@ -122,6 +127,52 @@ function getCtx() {
   if (_ctx.state === 'suspended') _ctx.resume();
   return _ctx;
 }
+
+// Silent HTMLAudioElement loop — routes iOS WebAudio through the media channel
+// so the hardware silent/mute switch doesn't kill tone playback.
+let _silentAudio = null;
+function ensureSilentAudio() {
+  if (_silentAudio) return _silentAudio;
+  // Generate a 0.1 s silent 8 kHz mono WAV as an object URL
+  const sr = 8000, n = Math.floor(sr * 0.1);
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const wr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  wr(0, 'RIFF');  v.setUint32(4, 36 + n * 2, true); wr(8, 'WAVE');
+  wr(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  wr(36, 'data'); v.setUint32(40, n * 2, true);
+  const a = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
+  a.loop = true;
+  a.preload = 'auto';
+  a.playsInline = true;
+  a.setAttribute('playsinline', '');
+  _silentAudio = a;
+  return a;
+}
+
+// Screen Wake Lock — keeps the phone awake during long Listen sessions.
+// iOS Safari lacks Wake Lock support; the silent-audio loop is the fallback there.
+let _wakeLock = null;
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    _wakeLock = await navigator.wakeLock.request('screen');
+    _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+  } catch (e) {}
+}
+async function releaseWakeLock() {
+  if (!_wakeLock) return;
+  try { await _wakeLock.release(); } catch (e) {}
+  _wakeLock = null;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state?.listenState?.active && !_wakeLock) {
+    requestWakeLock();
+  }
+});
 
 let _keepAlive = null;
 function startKeepAlive() {
@@ -511,8 +562,18 @@ function speakWord(text) {
     utt.rate = 0.85;
     const v = getPreferredVoice();
     if (v) utt.voice = v;
-    utt.onend = resolve;
-    utt.onerror = resolve;
+    let done = false;
+    const finish = () => { if (done) return; done = true; resolve(); };
+    utt.onend = finish;
+    utt.onerror = finish;
+    // Watchdog: iOS Safari sometimes fires neither onend nor onerror.
+    // Cap wait at (text length × 600 ms) + 2 s so the Listen loop can't hang.
+    const cap = Math.max(2500, text.length * 600 + 2000);
+    setTimeout(() => {
+      if (done) return;
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+      finish();
+    }, cap);
     window.speechSynthesis.speak(utt);
   });
 }
@@ -560,7 +621,7 @@ function render() {
 
   const body = el('main', { style:{
     flex:'1', display:'flex', flexDirection:'column',
-    alignItems:'center', padding:'0 16px 32px',
+    alignItems:'center', padding:'0 16px calc(32px + env(safe-area-inset-bottom))',
   }});
   const inner = el('div', { className:'inner-wrap', style:{ width:'100%', maxWidth:'560px' }});
 
@@ -594,7 +655,7 @@ function renderHeader(t) {
 
   const hdr = el('header', { style:{
     background:t.bgCard, borderBottom:`1px solid ${t.border}`,
-    padding:'12px 20px', display:'flex', alignItems:'center',
+    padding:'calc(12px + env(safe-area-inset-top)) 20px 12px', display:'flex', alignItems:'center',
     justifyContent:'space-between', position:'sticky', top:0, zIndex:20,
   }});
 
@@ -1279,16 +1340,18 @@ function renderPractice(t) {
     transition:'opacity 0.3s ease',
   }});
   q.choices.forEach((ch, idx) => {
-    let bg = t.bgCard, border = t.border, color = t.text, fw = '700';
+    let bg = t.bgCard, border = t.border, color = t.text, fw = '700', mark = '';
     if (answered) {
-      if (ch === q.correct)    { bg = t.correctDim; border = t.correct; color = t.correct; fw = '700'; }
-      else if (ch === chosen)  { bg = t.wrongDim;   border = t.wrong;   color = t.wrong;   fw = '700'; }
+      if (ch === q.correct)    { bg = t.correctDim; border = t.correct; color = t.correct; fw = '700'; mark = '✓'; }
+      else if (ch === chosen)  { bg = t.wrongDim;   border = t.wrong;   color = t.wrong;   fw = '700'; mark = '✗'; }
       else                     { color = t.textMuted; }
     }
     const btn = el('button', {
       className: (canAnswer || answered) ? 'btn-choice-hover' : '',
+      'data-word': ch,
       'aria-label': `Choice ${idx + 1}: ${ch}${answered && ch === q.correct ? ' — correct' : answered && ch === chosen ? ' — your answer, incorrect' : ''}`,
       style:{
+        position:'relative',
         padding:'12px 8px', border:`2px solid ${border}`,
         borderRadius: t.scanlines ? '2px' : '10px',
         background:bg, color, fontSize:'15px', fontWeight:fw,
@@ -1297,6 +1360,13 @@ function renderPractice(t) {
         boxShadow: (answered && ch === q.correct && t.scanlines) ? `0 0 8px ${t.correct}88` : 'none',
         cursor: (canAnswer || answered) ? 'pointer' : 'default',
     }}, ch.toUpperCase());
+    if (mark) {
+      btn.appendChild(el('span', { 'aria-hidden':'true', style:{
+        position:'absolute', top:'3px', right:'6px',
+        fontSize:'13px', fontWeight:'800', letterSpacing:'0',
+        color: mark === '✓' ? t.correct : t.wrong,
+      }}, mark));
+    }
     if (canAnswer) {
       btn.addEventListener('click', () => handleAnswer(ch));
     } else if (answered) {
@@ -1400,6 +1470,9 @@ async function unlockAudio() {
   // Must be called synchronously inside a user-gesture handler to satisfy iOS
   const ctx = getCtx();
   if (ctx.state === 'suspended') await ctx.resume();
+  // Start (or resume) silent HTMLAudio loop so WebAudio routes through the iOS
+  // media channel rather than the ringer (bypasses the hardware silent switch).
+  try { await ensureSilentAudio().play(); } catch (e) {}
   // Silent blip — satisfies iOS Safari's gesture requirement
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -1423,6 +1496,7 @@ function goSettings() {
     clearInterval(ls.timerInterval);
     if (ls._sleepResolve) { ls._sleepResolve(); ls._sleepResolve = null; }
     stopKeepAlive();
+    releaseWakeLock();
   }
   state.screen = 'settings';
   state.playState = 'idle';
@@ -1445,6 +1519,7 @@ async function startPractice() {
 async function startListen() {
   await unlockAudio();
   startKeepAlive();
+  requestWakeLock();
   const ls = state.listenState;
   ls.active = true;
   ls.elapsed = 0;
@@ -1530,6 +1605,7 @@ function stopListen() {
   clearInterval(ls.timerInterval);
   if (ls._sleepResolve) { ls._sleepResolve(); ls._sleepResolve = null; }
   stopKeepAlive();
+  releaseWakeLock();
   state.screen = 'listenSummary';
   render();
 }
@@ -1601,10 +1677,19 @@ function transitionToAnswered(choice) {
   if (!ok && s) s.insertAdjacentElement('afterend', makeWrongActions(t));
   const g = document.getElementById('cw-choices');
   if (g) Array.from(g.querySelectorAll('button')).forEach(btn => {
-    const w = btn.textContent.toLowerCase().trim();
-    if (w === q.correct)   { btn.style.background = t.correctDim; btn.style.borderColor = t.correct; btn.style.color = t.correct; if (t.scanlines) btn.style.boxShadow = `0 0 8px ${t.correct}88`; }
-    else if (w === choice) { btn.style.background = t.wrongDim;   btn.style.borderColor = t.wrong;   btn.style.color = t.wrong; }
+    const w = btn.dataset.word;
+    let mark = '';
+    if (w === q.correct)   { btn.style.background = t.correctDim; btn.style.borderColor = t.correct; btn.style.color = t.correct; if (t.scanlines) btn.style.boxShadow = `0 0 8px ${t.correct}88`; mark = '✓'; }
+    else if (w === choice) { btn.style.background = t.wrongDim;   btn.style.borderColor = t.wrong;   btn.style.color = t.wrong; mark = '✗'; }
     else                   { btn.style.color = t.textMuted; }
+    if (mark) {
+      btn.style.position = 'relative';
+      btn.appendChild(el('span', { 'aria-hidden':'true', style:{
+        position:'absolute', top:'3px', right:'6px',
+        fontSize:'13px', fontWeight:'800', letterSpacing:'0',
+        color: mark === '✓' ? t.correct : t.wrong,
+      }}, mark));
+    }
     btn.onclick = () => doPlayWord(w);
   });
 }
@@ -1677,7 +1762,7 @@ function transitionToReady() {
       btn.style.opacity = '1';
       btn.style.cursor = 'pointer';
       btn.classList.add('btn-choice-hover');
-      const word = btn.textContent.toLowerCase().trim();
+      const word = btn.dataset.word;
       btn.addEventListener('click', () => handleAnswer(word));
     });
   }
@@ -1700,8 +1785,10 @@ function transitionToPlaying() {
     gridEl.innerHTML = '';
     state.q.choices.forEach((ch, idx) => {
       const btn = el('button', {
+        'data-word': ch,
         'aria-label': `Choice ${idx + 1}: ${ch}`,
         style:{
+          position:'relative',
           padding:'12px 8px', border:`2px solid ${t.border}`,
           borderRadius: t.scanlines ? '2px' : '10px',
           background:t.bgCard, color:t.text, fontSize:'15px', fontWeight:'700',
@@ -1782,8 +1869,67 @@ document.addEventListener('keydown', e => {
 });
 
 // ── SERVICE WORKER (S10) ─────────────────────────────────────────────────────
+let _pendingSW = null;     // Installed-but-waiting SW that the banner points at
+let _swRefreshing = false; // Guards the controllerchange reload after user accepts
+
+function showUpdateBanner() {
+  if (document.getElementById('_update-banner')) return;
+  const t = T();
+  const banner = el('div', { id:'_update-banner', role:'status', 'aria-live':'polite', style:{
+    position:'fixed',
+    bottom:'calc(16px + env(safe-area-inset-bottom))',
+    left:'50%', transform:'translateX(-50%)',
+    background:t.bgCard, color:t.text,
+    border:`1px solid ${t.accent}`, borderRadius:'10px',
+    padding:'10px 14px', fontSize:'13px', fontWeight:'600',
+    display:'flex', alignItems:'center', gap:'10px', zIndex:200,
+    boxShadow:'0 6px 24px rgba(0,0,0,0.35)', maxWidth:'92vw',
+  }});
+  banner.appendChild(el('span', {}, 'Update available'));
+  const reloadBtn = el('button', { style:{
+    background:t.accent, color:t.accentText, border:'none',
+    padding:'6px 12px', borderRadius:'6px',
+    fontSize:'12px', fontWeight:'700', letterSpacing:'1px',
+  }}, 'RELOAD');
+  reloadBtn.addEventListener('click', () => {
+    if (_pendingSW) _pendingSW.postMessage({ type: 'SKIP_WAITING' });
+    else window.location.reload();
+  });
+  const dismissBtn = el('button', { 'aria-label':'Dismiss update', style:{
+    background:'transparent', color:t.textMuted, border:'none',
+    fontSize:'16px', padding:'0 4px',
+  }}, '✕');
+  dismissBtn.addEventListener('click', () => banner.remove());
+  banner.appendChild(reloadBtn);
+  banner.appendChild(dismissBtn);
+  document.body.appendChild(banner);
+}
+
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  navigator.serviceWorker.register('./sw.js').then(reg => {
+    const track = nw => {
+      if (!nw) return;
+      nw.addEventListener('statechange', () => {
+        // "installed" + existing controller = a genuine update, not first install
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+          _pendingSW = nw;
+          showUpdateBanner();
+        }
+      });
+    };
+    if (reg.waiting && navigator.serviceWorker.controller) {
+      _pendingSW = reg.waiting;
+      showUpdateBanner();
+    }
+    reg.addEventListener('updatefound', () => track(reg.installing));
+  }).catch(() => {});
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    // Only reload when we tracked an update — avoids reloading on first install
+    if (!_pendingSW || _swRefreshing) return;
+    _swRefreshing = true;
+    window.location.reload();
+  });
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
