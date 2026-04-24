@@ -123,6 +123,25 @@ function getCtx() {
   return _ctx;
 }
 
+let _keepAlive = null;
+function startKeepAlive() {
+  if (_keepAlive) return;
+  const ctx = getCtx();
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  g.gain.value = 0;
+  osc.connect(g); g.connect(ctx.destination);
+  osc.start();
+  _keepAlive = { osc, g };
+}
+function stopKeepAlive() {
+  if (!_keepAlive) return;
+  try { _keepAlive.osc.stop(); } catch(e) {}
+  try { _keepAlive.osc.disconnect(); } catch(e) {}
+  try { _keepAlive.g.disconnect(); } catch(e) {}
+  _keepAlive = null;
+}
+
 function playMorseAudio(text, charWpm, effectiveWpm, frequency) {
   return new Promise(resolve => {
     const ctx = getCtx();
@@ -165,7 +184,7 @@ function playMorseAudio(text, charWpm, effectiveWpm, frequency) {
       const ri = Math.max(1, Math.round(ramp * sr));
       const n  = s1 - s0;
       for (let i = 0; i < n; i++) {
-        const env = i < ri ? i / ri : (n - i) < ri ? (n - i) / ri : 1.0;
+        const env = i < ri ? i / ri : (n - 1 - i) < ri ? (n - 1 - i) / ri : 1.0;
         data[s0 + i] = 0.42 * env * Math.sin(twoPiF * (s0 + i) / sr);
       }
     }
@@ -174,7 +193,7 @@ function playMorseAudio(text, charWpm, effectiveWpm, frequency) {
     src.buffer = buf;
     src.connect(ctx.destination);
     src.start(ctx.currentTime + 0.05);
-    src.onended = () => src.disconnect();
+    setTimeout(() => { try { src.disconnect(); } catch(e) {} }, (tSec + 1.0) * 1000);
     setTimeout(resolve, (tSec + 0.3) * 1000);
   });
 }
@@ -405,14 +424,14 @@ function playListenBeep(charWpm, frequency) {
     const twoPiF = 2 * Math.PI * (frequency + 100);
     const ri = Math.max(1, Math.round(Math.min(0.006, dit * 0.15) * sr));
     for (let i = 0; i < n; i++) {
-      const env = i < ri ? i / ri : (n - i) < ri ? (n - i) / ri : 1.0;
+      const env = i < ri ? i / ri : (n - 1 - i) < ri ? (n - 1 - i) / ri : 1.0;
       data[i] = 0.21 * env * Math.sin(twoPiF * i / sr);
     }
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.connect(ctx.destination);
     src.start(ctx.currentTime + 0.05);
-    src.onended = () => src.disconnect();
+    setTimeout(() => { try { src.disconnect(); } catch(e) {} }, (dit + 1.0) * 1000);
     setTimeout(resolve, (dit + 0.15) * 1000);
   });
 }
@@ -1171,6 +1190,7 @@ function goSettings() {
     ls.active = false;
     clearInterval(ls.timerInterval);
     if (ls._sleepResolve) { ls._sleepResolve(); ls._sleepResolve = null; }
+    stopKeepAlive();
   }
   state.screen = 'settings';
   state.playState = 'idle';
@@ -1192,6 +1212,7 @@ async function startPractice() {
 
 async function startListen() {
   await unlockAudio();
+  startKeepAlive();
   const ls = state.listenState;
   ls.active = true;
   ls.elapsed = 0;
@@ -1253,6 +1274,7 @@ function stopListen() {
   ls.active = false;
   clearInterval(ls.timerInterval);
   if (ls._sleepResolve) { ls._sleepResolve(); ls._sleepResolve = null; }
+  stopKeepAlive();
   state.screen = 'listenSummary';
   render();
 }
