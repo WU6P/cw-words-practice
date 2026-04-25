@@ -261,7 +261,7 @@ function playMorseAudio(text, charWpm, effectiveWpm, frequency) {
       const n  = s1 - s0;
       for (let i = 0; i < n; i++) {
         const env = i < ri ? i / ri : (n - 1 - i) < ri ? (n - 1 - i) / ri : 1.0;
-        data[s0 + i] = 0.42 * env * Math.sin(twoPiF * (s0 + i) / sr);
+        data[s0 + i] = ((state.cfg.cwVolume ?? 50) / 100 * 0.85) * env * Math.sin(twoPiF * (s0 + i) / sr);
       }
     }
 
@@ -448,6 +448,7 @@ const state = {
     voiceGender:      _saved.voiceGender      ?? 'female',
     voiceRate:        _saved.voiceRate        ?? 1.25,
     voiceVolume:      _saved.voiceVolume      ?? 75,
+    cwVolume:         _saved.cwVolume         ?? 50,
     allowCloudVoice:  _saved.allowCloudVoice  ?? false,
     saveMissedWords:  _saved.saveMissedWords  ?? true,
   },
@@ -957,7 +958,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '1.0');
+  infoRow('Version', '1.1');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
@@ -1314,6 +1315,33 @@ function renderSettingsModal(t) {
   tvRow.appendChild(tvLabel);
   tvRow.appendChild(tvToggle);
   sec5.appendChild(tvRow);
+
+  // CW Volume slider
+  sec5.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'14px 0' }}));
+  const cwVolRow = el('div', {});
+  const cwVolHdr = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'8px' }});
+  const cwVolLeft = el('div', {});
+  cwVolLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'13px', color:t.text }}, 'CW Volume'));
+  cwVolLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Morse code tone loudness'));
+  cwVolHdr.appendChild(cwVolLeft);
+  const cwVolValSpan = el('span', { style:{ fontFamily:t.mono, fontSize:'15px', fontWeight:'600', color:t.accent, minWidth:'42px', textAlign:'right' }}, `${cfg.cwVolume}%`);
+  cwVolHdr.appendChild(cwVolValSpan);
+  cwVolRow.appendChild(cwVolHdr);
+  const cwVolSliderRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
+  const cwVolMinus = el('button', { style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '−');
+  const cwVolSlider = el('input', { type:'range', min:'1', max:'100', value:String(cfg.cwVolume), style:{ flex:'1', accentColor:t.accent }});
+  const cwVolPlus  = el('button', { style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '+');
+  const updateCwVol = v => { cfg.cwVolume = Math.min(100, Math.max(1, v)); cwVolSlider.value = cfg.cwVolume; cwVolValSpan.textContent = `${cfg.cwVolume}%`; };
+  cwVolSlider.addEventListener('input',  () => updateCwVol(+cwVolSlider.value));
+  cwVolSlider.addEventListener('change', () => saveTweaks());
+  cwVolMinus.addEventListener('click', () => { updateCwVol(cfg.cwVolume - 5); saveTweaks(); });
+  cwVolPlus.addEventListener('click',  () => { updateCwVol(cfg.cwVolume + 5); saveTweaks(); });
+  cwVolSliderRow.appendChild(cwVolMinus);
+  cwVolSliderRow.appendChild(cwVolSlider);
+  cwVolSliderRow.appendChild(cwVolPlus);
+  cwVolRow.appendChild(cwVolSliderRow);
+  sec5.appendChild(cwVolRow);
+
   modal.appendChild(sec5);
 
   // Mode selector (two-block, matches home page style) — item 6
@@ -2132,10 +2160,9 @@ async function startListen() {
       if (ls.stopRequested) break;
       await speakWord(word);
       if (ls.stopRequested) break;
-      // iOS auto-ducks WebAudio output for up to ~2.5 s after speech ends.
-      // Resume AudioContext (may have been suspended) and wait it out.
+      // Resume AudioContext in case iOS suspended it during speech.
       try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
-      await listenSleep(Math.max(stdGap, 2500), ls);
+      await listenSleep(Math.max(stdGap, 1000), ls);
       if (ls.stopRequested) break;
     } else {
       // Voice OFF: configurable gap between words (before first morse)
