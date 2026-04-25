@@ -869,6 +869,8 @@ function render() {
   if (_oldOverlay) _oldOverlay.remove();
   const _oldHelpOverlay = document.getElementById('_help-overlay');
   if (_oldHelpOverlay) _oldHelpOverlay.remove();
+  const _oldDDOverlay = document.getElementById('_help-dd-overlay');
+  if (_oldDDOverlay) _oldDDOverlay.remove();
   const t = T();
   // Push theme colours to CSS variables for hover/focus rules (S4, S5)
   document.documentElement.style.setProperty('--t-accent',   t.accent);
@@ -1032,8 +1034,8 @@ function renderManualContent(t) {
   P('In Listen mode the app runs a continuous stream of Morse words — like a beacon or on-the-air practice session. No multiple choice; just listen and copy.');
   B('Session Duration', 'How long the session runs: 5 minutes to 12 hours. A timer counts up in the header. The session ends automatically when time is up, or you can stop it early.');
   B('Announcement Dit', 'Before each new word a soft dit (the letter E) is played at reduced volume as a "new word coming" signal, followed by a brief pause.');
-  B('Word Repeats', 'Each word is repeated 0–10 times. Setting 0 plays each word exactly once. Higher repeat counts give you more chances to be familiar with the word before the next one arrives.');
-  B('Word Gap', 'The silence between words (or before the Natual sound of the word) is a multiple (1×–10×) of the standard inter-word space. A larger multiplier gives you more thinking time. Pick the ones fit your current level.');
+  B('Word Repeats', 'How many additional times the word is played after the first play. Setting 0 plays each word exactly once; setting 1 plays it twice; setting 2 plays it three times, and so on. Range: 0–10.');
+  B('Word Gap', 'The silence after the first Morse play — before the next repeat begins (voice off) or before the voice reveal starts (voice on). Expressed as a multiple (1×–20×) of the standard inter-word space at the current WPM. A larger value gives more thinking time.');
   B('Voice Reveal', 'When enabled, the spoken English word is announced after the first Morse play. The spoken word comes after the first play; subsequent repeats are Morse only.');
 
   S('Practice Mode');
@@ -1152,7 +1154,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '1.1');
+  infoRow('Version', '1.2');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
@@ -1236,7 +1238,7 @@ function renderHeader(t) {
   });
   helpWrap.appendChild(helpBtn);
   if (state.helpDropdownOpen) {
-    const ddOverlay = el('div', { style:{
+    const ddOverlay = el('div', { id:'_help-dd-overlay', style:{
       position:'fixed', inset:'0', zIndex:19,
     }});
     ddOverlay.addEventListener('click', () => { state.helpDropdownOpen = false; render(); });
@@ -1613,7 +1615,7 @@ function renderSettingsModal(t) {
     const dlyVal = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'32px', textAlign:'center' }}, String(cfg.listenDelay));
     const dlyPlus = el('button', { style:stepBtnStyle }, '+');
     dlyMinus.addEventListener('click', () => { cfg.listenDelay = Math.max(1, cfg.listenDelay - 1); dlyVal.textContent = String(cfg.listenDelay); saveTweaks(); });
-    dlyPlus.addEventListener('click',  () => { cfg.listenDelay = Math.min(10, cfg.listenDelay + 1); dlyVal.textContent = String(cfg.listenDelay); saveTweaks(); });
+    dlyPlus.addEventListener('click',  () => { cfg.listenDelay = Math.min(20, cfg.listenDelay + 1); dlyVal.textContent = String(cfg.listenDelay); saveTweaks(); });
     dlyStepper.appendChild(dlyMinus); dlyStepper.appendChild(dlyVal); dlyStepper.appendChild(dlyPlus);
     dlyRow.appendChild(dlyLbl); dlyRow.appendChild(dlyStepper);
     lnExtra.appendChild(dlyRow);
@@ -2356,7 +2358,7 @@ async function startListen() {
     const stdGap = 7 * 1200 / fwpm;
 
     if (cfg.listenVoice) {
-      // Voice ON: standard gap after beep, then first morse, then configurable gap before voice
+      // Voice ON: standard gap, first morse, configurable gap before voice, voice reveal, then repeats
       await listenSleep(stdGap, ls);
       if (ls.stopRequested) break;
       await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
@@ -2369,22 +2371,26 @@ async function startListen() {
       try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
       await listenSleep(Math.max(stdGap, 1000), ls);
       if (ls.stopRequested) break;
-    } else {
-      // Voice OFF: configurable gap between words (before first morse)
-      await listenSleep(cfg.listenDelay * stdGap, ls);
-      if (ls.stopRequested) break;
-      // When repeat=0, still play once here
-      if (cfg.listenRepeat === 0) {
+      for (let r = 0; r < cfg.listenRepeat; r++) {
+        if (ls.stopRequested) break;
         await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
         if (ls.stopRequested) break;
+        if (r < cfg.listenRepeat - 1) {
+          await listenSleep(cfg.listenDelay * stdGap, ls);
+          if (ls.stopRequested) break;
+        }
       }
-    }
-
-    for (let r = 0; r < cfg.listenRepeat; r++) {
+    } else {
+      // Voice OFF: standard gap, first morse, then listenRepeat additional plays with configurable gap between
+      await listenSleep(stdGap, ls);
       if (ls.stopRequested) break;
       await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
-      if (r < cfg.listenRepeat - 1 && !ls.stopRequested) {
-        await listenSleep(7 * 1200 / cfg.wpm, ls);
+      if (ls.stopRequested) break;
+      for (let r = 0; r < cfg.listenRepeat; r++) {
+        await listenSleep(cfg.listenDelay * stdGap, ls);
+        if (ls.stopRequested) break;
+        await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
+        if (ls.stopRequested) break;
       }
     }
     if (ls.stopRequested) break;
