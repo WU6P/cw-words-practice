@@ -390,9 +390,12 @@ function playListenBeepBlob(charWpm, frequency) {
   const data = new Float32Array(n);
   const twoPiF = 2 * Math.PI * (frequency + 100);
   const ri = Math.max(1, Math.round(Math.min(0.006, dit * 0.15) * sr));
+  // Beep tracks the user's cwVolume at half loudness so it stays an audible cue
+  // against the Morse, not a fixed amplitude that gets drowned out at high cwVolume.
+  const beepAmp = (state.cfg.cwVolume ?? 75) / 100 * 0.5;
   for (let i = 0; i < n; i++) {
     const env = i < ri ? i / ri : (n - 1 - i) < ri ? (n - 1 - i) / ri : 1.0;
-    data[i] = 0.21 * env * Math.sin(twoPiF * i / sr);
+    data[i] = beepAmp * env * Math.sin(twoPiF * i / sr);
   }
   return _playPcmBlob(data, sr, dit);
 }
@@ -814,9 +817,11 @@ function playListenBeep(charWpm, frequency) {
     const data = buf.getChannelData(0);
     const twoPiF = 2 * Math.PI * (frequency + 100);
     const ri = Math.max(1, Math.round(Math.min(0.006, dit * 0.15) * sr));
+    // Beep tracks cwVolume at half loudness so it stays an audible cue against the Morse.
+    const beepAmp = (state.cfg.cwVolume ?? 75) / 100 * 0.5;
     for (let i = 0; i < n; i++) {
       const env = i < ri ? i / ri : (n - 1 - i) < ri ? (n - 1 - i) / ri : 1.0;
-      data[i] = 0.21 * env * Math.sin(twoPiF * i / sr);
+      data[i] = beepAmp * env * Math.sin(twoPiF * i / sr);
     }
     const src = ctx.createBufferSource();
     src.buffer = buf;
@@ -1214,7 +1219,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '1.2');
+  infoRow('Version', '1.4.1');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
