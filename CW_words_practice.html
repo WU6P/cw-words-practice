@@ -129,12 +129,15 @@ function getCtx() {
 }
 
 // Silent HTMLAudioElement loop — routes iOS WebAudio through the media channel
-// so the hardware silent/mute switch doesn't kill tone playback.
+// so the hardware silent/mute switch doesn't kill tone playback, and so the
+// iOS audio session stays alive when the screen is locked.
 let _silentAudio = null;
 function ensureSilentAudio() {
   if (_silentAudio) return _silentAudio;
-  // Generate a 0.1 s silent 8 kHz mono WAV as an object URL
-  const sr = 8000, n = Math.floor(sr * 0.1);
+  // Generate a 2 s 8 kHz mono WAV. Samples alternate ±1 (essentially inaudible
+  // at any volume) instead of 0 — iOS detects all-zero PCM as "silent" and tears
+  // down the audio session on lock screen, killing WebAudio.
+  const sr = 8000, n = Math.floor(sr * 2);
   const buf = new ArrayBuffer(44 + n * 2);
   const v = new DataView(buf);
   const wr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
@@ -144,6 +147,7 @@ function ensureSilentAudio() {
   v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
   v.setUint16(32, 2, true); v.setUint16(34, 16, true);
   wr(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, (i & 1) ? 1 : -1, true);
   const a = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
   a.loop = true;
   a.preload = 'auto';
@@ -151,6 +155,28 @@ function ensureSilentAudio() {
   a.setAttribute('playsinline', '');
   _silentAudio = a;
   return a;
+}
+
+// MediaSession registration — iOS only keeps WebAudio alive on lock screen for
+// pages it recognises as media apps. Setting metadata + playbackState='playing'
+// flips that flag.
+function setupMediaSession(playing) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    if (playing) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'CW Practice — Listen Mode',
+        artist: 'CW Words Practice',
+      });
+      navigator.mediaSession.setActionHandler('play', () => {});
+      navigator.mediaSession.setActionHandler('pause', () => {
+        if (state?.listenState?.active) stopListen();
+      });
+      navigator.mediaSession.playbackState = 'playing';
+    } else {
+      navigator.mediaSession.playbackState = 'paused';
+    }
+  } catch (e) {}
 }
 
 // Screen Wake Lock — keeps the phone awake during long Listen sessions.
@@ -171,6 +197,16 @@ async function releaseWakeLock() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && state?.listenState?.active && !_wakeLock) {
     requestWakeLock();
+  }
+  // Resume the AudioContext if iOS suspended it while the screen was locked.
+  if (document.visibilityState === 'visible' && _ctx && _ctx.state === 'suspended') {
+    _ctx.resume().catch(() => {});
+  }
+});
+window.addEventListener('pageshow', () => {
+  if (_ctx && _ctx.state === 'suspended') _ctx.resume().catch(() => {});
+  if (state?.listenState?.active && _silentAudio && _silentAudio.paused) {
+    _silentAudio.play().catch(() => {});
   }
 });
 
@@ -2043,6 +2079,7 @@ async function unlockAudio() {
   // Start (or resume) silent HTMLAudio loop so WebAudio routes through the iOS
   // media channel rather than the ringer (bypasses the hardware silent switch).
   try { await ensureSilentAudio().play(); } catch (e) {}
+  setupMediaSession(true);
   // Silent blip — satisfies iOS Safari's WebAudio gesture requirement
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -2068,6 +2105,8 @@ function goSettings() {
     stopKeepAlive();
     stopSpeechHeartbeat();
     releaseWakeLock();
+    setupMediaSession(false);
+    try { _silentAudio && _silentAudio.pause(); } catch (e) {}
   }
   state.screen = 'settings';
   state.playState = 'idle';
@@ -2201,6 +2240,8 @@ function stopListen() {
   stopKeepAlive();
   stopSpeechHeartbeat();
   releaseWakeLock();
+  setupMediaSession(false);
+  try { _silentAudio && _silentAudio.pause(); } catch (e) {}
   state.screen = 'listenSummary';
   render();
 }
