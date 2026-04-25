@@ -472,6 +472,12 @@ function startSpeechHeartbeat() {
   _speechHeartbeat = setInterval(() => {
     if (!window.speechSynthesis) return;
     if (window.speechSynthesis.speaking || window.speechSynthesis.pending) return;
+    // Skip while a Morse blob is mid-playback. On a locked/backgrounded iPhone,
+    // calling speechSynthesis.speak() shifts audio focus to TTS and briefly
+    // ducks the HTMLAudio Morse element, producing audible volume dips inside
+    // a single word. The next tick (or the real speakWord() after Morse ends)
+    // re-arms the engine before iOS revokes its permission.
+    if (_morseAudio && !_morseAudio.paused && !_morseAudio.ended) return;
     try {
       const u = new SpeechSynthesisUtterance('a');
       u.volume = 0;
@@ -1231,7 +1237,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '1.4.2');
+  infoRow('Version', '1.5');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
