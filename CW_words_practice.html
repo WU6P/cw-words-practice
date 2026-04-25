@@ -245,20 +245,29 @@ function _playPcmBlob(samples, sr, totalSec) {
       done = true;
       a.removeEventListener('ended', finish);
       a.removeEventListener('error', finish);
+      a.removeEventListener('canplaythrough', start);
       resolve();
+    };
+    const start = () => {
+      a.removeEventListener('canplaythrough', start);
+      const p = a.play();
+      if (p && p.catch) p.catch(() => finish());
     };
     a.addEventListener('ended', finish);
     a.addEventListener('error', finish);
+    a.addEventListener('canplaythrough', start, { once: true });
+    a.volume = 1;                    // amplitude lives in the encoded PCM
     try { a.pause(); } catch (e) {}
     a.src = url;
     try { a.load(); } catch (e) {}
     // Revoke the previous blob *after* the new src has been assigned so iOS
     // doesn't tear down the element while we're swapping sources.
     if (prevUrl) setTimeout(() => { try { URL.revokeObjectURL(prevUrl); } catch (e) {} }, 100);
+    // Fallback: if canplaythrough doesn't fire in 800 ms (rare on iOS for short
+    // blobs), start playback anyway — better a slight pop than a stalled loop.
+    setTimeout(start, 800);
     // Watchdog: if iOS drops onended in some background state, don't hang.
-    setTimeout(finish, (totalSec + 2.0) * 1000);
-    const p = a.play();
-    if (p && p.catch) p.catch(() => finish());
+    setTimeout(finish, (totalSec + 3.0) * 1000);
   });
 }
 
