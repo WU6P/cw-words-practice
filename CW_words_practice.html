@@ -2095,9 +2095,9 @@ function makeWrongActions(t) {
     fontSize:'28px', color:t.textMuted, flexShrink:'0', cursor:'pointer', transition:'all 0.15s',
   }}, '↺');
   rb.addEventListener('click', e => { e.stopPropagation(); doReplay(); });
-  const nb = el('button', { id:'next-btn', style:{
-    flex:'1', padding:'20px 12px', background:t.accent, border:'none',
-    borderRadius:'10px', color:t.accentText, fontSize:'14px', fontWeight:'700', cursor:'pointer',
+  const nb = el('button', { id:'next-btn', disabled: true, style:{
+    flex:'1', padding:'20px 12px', background:t.border, border:'none',
+    borderRadius:'10px', color:t.textMuted, fontSize:'14px', fontWeight:'700', cursor:'not-allowed',
     transition:'background 0.15s, color 0.15s',
   }}, 'Next →');
   nb.addEventListener('click', e => { e.stopPropagation(); handleNext(); });
