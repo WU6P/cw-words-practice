@@ -121,6 +121,18 @@ function textToMorse(text) {
 }
 
 // ── AUDIO ENGINE ─────────────────────────────────────────────────────────────
+// iOS gets special-case handling: WebAudio is hard-suspended on screen-lock /
+// backgrounding, so listen-mode Morse plays via pre-rendered WAV blobs through
+// HTMLAudioElement (which survives lock if MediaSession is registered). The
+// same workarounds break macOS Safari speech (the persistent silent loop +
+// MediaSession ducks speechSynthesis to inaudible) so we gate them off there.
+const _isIOS = (() => {
+  const ua = navigator.userAgent || '';
+  if (/iPad|iPhone|iPod/.test(ua)) return true;
+  // iPadOS 13+ identifies as MacIntel — disambiguate by touch support.
+  return navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1;
+})();
+
 let _ctx = null;
 function getCtx() {
   if (!_ctx || _ctx.state === 'closed') _ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -129,15 +141,15 @@ function getCtx() {
 }
 
 // Silent HTMLAudioElement loop — routes iOS WebAudio through the media channel
-// so the hardware silent/mute switch doesn't kill tone playback, and so the
-// iOS audio session stays alive when the screen is locked.
+// so the hardware silent/mute switch doesn't kill tone playback. On iOS the
+// loop is 2 s of non-zero ±1 samples (iOS treats all-zero PCM as silent and
+// tears down the audio session on lock); on other browsers it's the original
+// 0.1 s zero-fill (the longer non-zero variant ducks macOS Safari speech).
 let _silentAudio = null;
 function ensureSilentAudio() {
   if (_silentAudio) return _silentAudio;
-  // Generate a 2 s 8 kHz mono WAV. Samples alternate ±1 (essentially inaudible
-  // at any volume) instead of 0 — iOS detects all-zero PCM as "silent" and tears
-  // down the audio session on lock screen, killing WebAudio.
-  const sr = 8000, n = Math.floor(sr * 2);
+  const sr = 8000;
+  const n = Math.floor(sr * (_isIOS ? 2 : 0.1));
   const buf = new ArrayBuffer(44 + n * 2);
   const v = new DataView(buf);
   const wr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
@@ -147,7 +159,9 @@ function ensureSilentAudio() {
   v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
   v.setUint16(32, 2, true); v.setUint16(34, 16, true);
   wr(36, 'data'); v.setUint32(40, n * 2, true);
-  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, (i & 1) ? 1 : -1, true);
+  if (_isIOS) {
+    for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, (i & 1) ? 1 : -1, true);
+  }
   const a = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
   a.loop = true;
   a.preload = 'auto';
@@ -157,10 +171,10 @@ function ensureSilentAudio() {
   return a;
 }
 
-// MediaSession registration — iOS only keeps WebAudio alive on lock screen for
-// pages it recognises as media apps. Setting metadata + playbackState='playing'
-// flips that flag.
+// MediaSession registration — iOS-only. Required to keep HTMLAudio playback
+// alive on lock screen; on macOS Safari it actively ducks speech, so skip.
 function setupMediaSession(playing) {
+  if (!_isIOS) return;
   if (!('mediaSession' in navigator)) return;
   try {
     if (playing) {
@@ -177,6 +191,113 @@ function setupMediaSession(playing) {
       navigator.mediaSession.playbackState = 'paused';
     }
   } catch (e) {}
+}
+
+// ── HTMLAudio Morse playback (iOS-only) ──────────────────────────────────────
+// WebAudio buffer-source playback is suspended by iOS the moment the page is
+// hidden. To keep listen-mode Morse audible on lock screen / backgrounding we
+// pre-render the same PCM, wrap it in a WAV header, and play it through an
+// HTMLAudioElement. With the silent loop + MediaSession established, iOS
+// keeps these elements playing in the background.
+function _encodeWavBlob(samples, sr) {
+  const n = samples.length;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const wr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  wr(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); wr(8, 'WAVE');
+  wr(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  wr(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+function _playPcmBlob(samples, sr, totalSec) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(_encodeWavBlob(samples, sr));
+    const a = new Audio(url);
+    a.preload = 'auto';
+    a.playsInline = true;
+    a.setAttribute('playsinline', '');
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      try { a.pause(); } catch (e) {}
+      URL.revokeObjectURL(url);
+      resolve();
+    };
+    a.addEventListener('ended', finish);
+    a.addEventListener('error', finish);
+    // Watchdog: if iOS drops onended in some background state, don't hang.
+    setTimeout(finish, (totalSec + 1.5) * 1000);
+    const p = a.play();
+    if (p && p.catch) p.catch(finish);
+  });
+}
+
+function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency) {
+  const sr = 22050;
+  const dit = 1.2 / charWpm;
+  const charUnitsTime = 31 * dit;
+  const totalWordTime = 60 / effectiveWpm;
+  const gapUnit = Math.max(dit, (totalWordTime - charUnitsTime) / 19);
+
+  const syms = [];
+  let tSec = 0;
+  text.trim().split(/\s+/).forEach((word, wi, arr) => {
+    tokenize(word).forEach(char => {
+      const code = MORSE[char];
+      if (!code) return;
+      [...code].forEach(sym => {
+        const dur = sym === '.' ? dit : dit * 3;
+        syms.push([tSec, dur]);
+        tSec += dur + dit;
+      });
+      tSec += 3 * gapUnit - dit;
+    });
+    if (wi < arr.length - 1) tSec += 4 * gapUnit;
+  });
+
+  if (!syms.length) return Promise.resolve();
+
+  const totalSamples = Math.ceil(tSec * sr);
+  const data = new Float32Array(totalSamples);
+  const twoPiF = 2 * Math.PI * frequency;
+  const amp = (state.cfg.cwVolume ?? 50) / 100 * 0.85;
+
+  for (const [symStart, dur] of syms) {
+    const ramp = Math.min(0.006, dur * 0.15);
+    const s0 = Math.round(symStart * sr);
+    const s1 = Math.min(Math.round((symStart + dur) * sr), totalSamples);
+    const ri = Math.max(1, Math.round(ramp * sr));
+    const n = s1 - s0;
+    for (let i = 0; i < n; i++) {
+      const env = i < ri ? i / ri : (n - 1 - i) < ri ? (n - 1 - i) / ri : 1.0;
+      data[s0 + i] = amp * env * Math.sin(twoPiF * (s0 + i) / sr);
+    }
+  }
+
+  return _playPcmBlob(data, sr, tSec);
+}
+
+function playListenBeepBlob(charWpm, frequency) {
+  const sr = 22050;
+  const dit = 1.2 / charWpm;
+  const n = Math.ceil(dit * sr);
+  const data = new Float32Array(n);
+  const twoPiF = 2 * Math.PI * (frequency + 100);
+  const ri = Math.max(1, Math.round(Math.min(0.006, dit * 0.15) * sr));
+  for (let i = 0; i < n; i++) {
+    const env = i < ri ? i / ri : (n - 1 - i) < ri ? (n - 1 - i) / ri : 1.0;
+    data[i] = 0.21 * env * Math.sin(twoPiF * i / sr);
+  }
+  return _playPcmBlob(data, sr, dit);
 }
 
 // Screen Wake Lock — keeps the phone awake during long Listen sessions.
@@ -2169,6 +2290,11 @@ async function startListen() {
   const { cfg, tweaks } = state;
   const pool = getWordPool(cfg.listKey);
   const fwpm = cfg.farnsworth ? Math.min(cfg.fwpm, cfg.wpm) : cfg.wpm;
+  // iOS suspends WebAudio on lock-screen / backgrounding — route Morse through
+  // HTMLAudio blobs there so listen mode keeps playing. Other platforms stay on
+  // the lower-latency WebAudio path.
+  const playMorseFn = _isIOS ? playMorseAudioBlob : playMorseAudio;
+  const playBeepFn = _isIOS ? playListenBeepBlob : playListenBeep;
   let lastWord = '';
 
   while (!ls.stopRequested) {
@@ -2186,7 +2312,7 @@ async function startListen() {
     if (ce) ce.textContent = `${ls.wordCount} word${ls.wordCount !== 1 ? 's' : ''} played`;
 
     // Announcement beep then gap before the word
-    await playListenBeep(cfg.wpm, tweaks.frequency);
+    await playBeepFn(cfg.wpm, tweaks.frequency);
     if (ls.stopRequested) break;
     await listenSleep(500, ls);
     if (ls.stopRequested) break;
@@ -2196,7 +2322,7 @@ async function startListen() {
       // Voice ON: standard gap after beep, then first morse, then configurable gap before voice
       await listenSleep(stdGap, ls);
       if (ls.stopRequested) break;
-      await playMorseAudio(word, cfg.wpm, fwpm, state.currentTone);
+      await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
       if (ls.stopRequested) break;
       await listenSleep(cfg.listenDelay * stdGap, ls);
       if (ls.stopRequested) break;
@@ -2212,14 +2338,14 @@ async function startListen() {
       if (ls.stopRequested) break;
       // When repeat=0, still play once here
       if (cfg.listenRepeat === 0) {
-        await playMorseAudio(word, cfg.wpm, fwpm, state.currentTone);
+        await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
         if (ls.stopRequested) break;
       }
     }
 
     for (let r = 0; r < cfg.listenRepeat; r++) {
       if (ls.stopRequested) break;
-      await playMorseAudio(word, cfg.wpm, fwpm, state.currentTone);
+      await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
       if (r < cfg.listenRepeat - 1 && !ls.stopRequested) {
         await listenSleep(7 * 1200 / cfg.wpm, ls);
       }
