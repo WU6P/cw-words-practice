@@ -722,7 +722,7 @@ function renderHelpModal(t) {
     boxShadow:'0 16px 48px #0006',
   }});
 
-  const titles = { manual:'📖 Manual', contact:'✉ Contact', about:'ℹ About' };
+  const titles = { manual:'📖 Manual', offline:'📴 Offline Use', contact:'✉ Contact', about:'ℹ About' };
   const hdr = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'24px' }});
   hdr.appendChild(el('span', { style:{ fontSize:'17px', fontWeight:'700', color:t.text }}, titles[state.helpOpen]));
   const closeBtn = el('button', { 'aria-label':'Close', style:{
@@ -738,6 +738,7 @@ function renderHelpModal(t) {
   modal.appendChild(hdr);
 
   if (state.helpOpen === 'manual')  modal.appendChild(renderManualContent(t));
+  if (state.helpOpen === 'offline') modal.appendChild(renderOfflineContent(t));
   if (state.helpOpen === 'contact') modal.appendChild(renderContactContent(t));
   if (state.helpOpen === 'about')   modal.appendChild(renderAboutContent(t));
 
@@ -795,27 +796,31 @@ function renderManualContent(t) {
   const P = (text)  => div.appendChild(_helpPara(t, text));
   const B = (label, desc) => div.appendChild(_helpBullet(t, label, desc));
 
-  P('CW Words Practice is a Morse code trainer for amateur radio operators. Choose a word pool, set your speed, pick a mode, and start training.');
+  P('CW Words Practice is a Morse code trainer for amateur radio operators. It is focus on CW Words practice.');
+  P('It has mainly two modes, Listen and Practice mode.');
+  P('Listen mode mimic the MorseCode Ninja Audios, with the following enhancement: User setted Tone, User setted repeat time, User setted wait time till Natual Audio of the world sound, User pick woman/man voice.');
+  P('Practice mode is on interactive side — User pick the correct answer out of similar ones, Missed words are collected and User can do target traning later.');
+  P('Choose a word pool, set your speed, pick a mode, and start training.');
+
+  S('Listen Mode');
+  P('In Listen mode the app runs a continuous stream of Morse words — like a beacon or on-the-air practice session. No multiple choice; just listen and copy.');
+  B('Session Duration', 'How long the session runs: 5 minutes to 12 hours. A timer counts up in the header. The session ends automatically when time is up, or you can stop it early.');
+  B('Announcement Dit', 'Before each new word a soft dit (the letter E) is played at reduced volume as a "new word coming" signal, followed by a brief pause.');
+  B('Word Repeats', 'Each word is repeated 0–10 times. Setting 0 plays each word exactly once. Higher repeat counts give you more chances to be familiar with the word before the next one arrives.');
+  B('Word Gap', 'The silence between words (or before the Natual sound of the word) is a multiple (1×–10×) of the standard inter-word space. A larger multiplier gives you more thinking time. Pick the ones fit your current level.');
+  B('Voice Reveal', 'When enabled, the spoken English word is announced after the first Morse play. The spoken word comes after the first play; subsequent repeats are Morse only.');
 
   S('Practice Mode');
   P('In Practice mode the app plays a word in Morse code and presents four multiple-choice answers. Select the correct word before time runs out.');
   B('Word Pool', 'Choose from Top 100 up to Top 2000 common English words, QSO Elements (ham-radio phrases), or your personal Missed Words list.');
   B('Character Speed', 'Sets how fast each character is sent (10–75 WPM). This is the true character rate.');
   B('Session Size', 'Number of questions per session: 10, 20, 50, or 100. Results are shown at the end.');
-  B('Scoring', 'Correct and total answers are tracked across the session. Accuracy is shown in the header and on the summary screen.');
+  B('Progress', 'Correct and total answers are tracked across the session. Accuracy is shown in the header and on the summary screen.');
   B('Replay', 'Tap the waveform card area to replay the current word at any time before answering.');
-
-  S('Listen Mode');
-  P('In Listen mode the app runs a continuous stream of Morse words — like a beacon or on-the-air practice session. No multiple choice; just listen and copy.');
-  B('Session Duration', 'How long the session runs: 5 minutes to 12 hours. A timer counts up in the header. The session ends automatically when time is up, or you can stop it early.');
-  B('Announcement Dit', 'Before each new word a soft dit (the letter E) is played at reduced volume as a "new word coming" signal, followed by a brief pause.');
-  B('Word Repeats', 'Each word is played 0–10 times. Setting 0 plays each word exactly once. Higher repeat counts give you more chances to copy the word before the next one arrives.');
-  B('Word Gap', 'The silence between words is a multiple (1×–10×) of the standard inter-word space. A larger multiplier gives you more thinking time between words. At 1× words follow at normal contest spacing; at 5–10× you get leisurely pauses suitable for slow-speed practice.');
-  B('Voice Reveal', 'When enabled, the spoken English word is announced after the first Morse play. Useful when you are learning to copy new vocabulary. The spoken word comes after the first play; subsequent repeats are Morse only.');
 
   S('Settings — Tone');
   B('Frequency', 'Sidetone pitch in Hz (300–1000 Hz). Default 550 Hz. Match your preferred receiver pitch.');
-  B('Tone Variation', 'When on, each word is sent on a slightly different pitch (±up to 200 Hz random offset). Simulates real on-air conditions where different stations have different pitches.');
+  B('Tone Variation', 'When on, each word is sent on a slightly different pitch (±up to 200 Hz random offset).');
 
   S('Settings — Farnsworth Timing');
   P('Farnsworth spacing sends each character at full character speed but increases the space between characters and words. This lets you hear the correct rhythm of each character without needing to copy at high overall speed.');
@@ -830,14 +835,38 @@ function renderManualContent(t) {
   B('Questions per Session', 'Choose 10, 20, 50, or 100 questions. After the last question the session summary is shown with your score and missed word list.');
 
   S('Missed Words');
-  P('When "Save Missed Words" is enabled (on by default), every word you answer incorrectly is recorded with a miss counter. The counter increments each time you miss the same word again, and decrements by one each time you get it right.');
-  P('The Missed Words word pool draws from your personal missed list. Words with higher miss counts appear more frequently, so the hardest words get the most practice. When a word\'s miss count reaches zero it is removed from the list.');
+  P('When "Save Missed Words" is enabled (on by default), every word you answer incorrectly is recorded with a miss counter. The counter resets each time (to 2) you miss the same word again, and decrements by one each time you get it right.');
+  P('The Missed Words word pool draws from your personal missed list. When a word\'s miss count reaches zero it is removed from the list.');
   P('Use "Clear Saved Words" in Settings to wipe the missed list and start fresh.');
 
   S('Settings — Theme');
-  B('Shack', 'Dark amber theme inspired by a classic radio shack. Easy on the eyes in a dimly lit room.');
+  B('Shack', 'Dark amber theme inspired by a classic radio shack.');
   B('Clean', 'Light theme with high contrast. Good for daylight use.');
-  B('Terminal', 'Dark green-on-black terminal look. For the die-hard CW operators.');
+  B('Terminal', 'Dark green-on-black terminal look.');
+
+  return div;
+}
+
+function renderOfflineContent(t) {
+  const div = el('div', {});
+  const S = (title) => div.appendChild(_helpSection(t, title));
+  const P = (text)  => div.appendChild(_helpPara(t, text));
+  const B = (label, desc) => div.appendChild(_helpBullet(t, label, desc));
+
+  P('CW Words Practice is a Progressive Web App (PWA). Once installed it runs fully offline — no internet connection needed for Morse playback, practice sessions, or your missed-words list.');
+
+  S('Install on iPhone / iPad');
+  P('Open the app in Safari, tap the Share button (the box with an arrow), then tap "Add to Home Screen". The app icon will appear on your home screen and will open full-screen without the browser bar.');
+
+  S('Install on Android');
+  P('Open the app in Chrome, tap the three-dot menu, then tap "Add to Home Screen" or "Install App". The app will be installed like a native app and work offline.');
+
+  S('Install on Desktop (Chrome / Edge)');
+  P('Look for the install icon (⊕) in the browser address bar and click it, or open the browser menu and choose "Install CW Words Practice". The app opens in its own window and works offline.');
+
+  S('After Installation');
+  B('Cloud Voices', 'If you use cloud voices (Settings → Voice Reveal → Allow Cloud Voices), voice reveal requires internet. Switch this off to use only locally stored voices, which work fully offline.');
+  B('Word Lists', 'All built-in word lists are bundled with the app and available offline. Your missed-words list is stored locally on your device.');
 
   return div;
 }
@@ -993,7 +1022,7 @@ function renderHeader(t) {
       padding:'4px', zIndex:30, minWidth:'130px',
       boxShadow:'0 8px 24px #0005',
     }});
-    [['manual','📖 Manual'],['contact','✉ Contact'],['about','ℹ About']].forEach(([key, label]) => {
+    [['manual','📖 Manual'],['offline','📴 Offline Use'],['contact','✉ Contact'],['about','ℹ About']].forEach(([key, label]) => {
       const item = el('button', { style:{
         display:'block', width:'100%', textAlign:'left', padding:'9px 14px',
         background:'none', border:'none', color:t.text, fontSize:'13px',
