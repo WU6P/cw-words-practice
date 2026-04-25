@@ -193,6 +193,31 @@ function stopKeepAlive() {
   _keepAlive = null;
 }
 
+// iOS Safari revokes speechSynthesis permission once the engine sits idle for
+// more than a few seconds outside a user gesture. The heartbeat keeps the
+// engine "active" by queuing a silent utterance every ~2 s, so subsequent
+// real speak() calls in async loops are honoured.
+let _speechHeartbeat = null;
+function startSpeechHeartbeat() {
+  if (_speechHeartbeat || !window.speechSynthesis) return;
+  _speechHeartbeat = setInterval(() => {
+    if (!window.speechSynthesis) return;
+    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) return;
+    try {
+      const u = new SpeechSynthesisUtterance('a');
+      u.volume = 0;
+      u.rate = 2;
+      window.speechSynthesis.speak(u);
+    } catch(e) {}
+  }, 2000);
+}
+function stopSpeechHeartbeat() {
+  if (!_speechHeartbeat) return;
+  clearInterval(_speechHeartbeat);
+  _speechHeartbeat = null;
+  try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch(e) {}
+}
+
 function playMorseAudio(text, charWpm, effectiveWpm, frequency) {
   return new Promise(resolve => {
     const ctx = getCtx();
@@ -1983,16 +2008,20 @@ async function unlockAudio() {
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + 0.001);
   // Warm up speechSynthesis while still inside the user gesture so iOS Safari
-  // allows speak() calls later in async loops without silently dropping them.
-  // Must use real (non-empty) text — iOS discards empty utterances without
-  // initialising the speech engine, which defeats the purpose of the warm-up.
+  // permits speak() calls later. Must use real (non-empty) text — iOS discards
+  // empty utterances without initialising the speech engine. Awaiting the
+  // utterance ensures iOS has actually processed it before we proceed.
   if (window.speechSynthesis) {
     try { window.speechSynthesis.cancel(); } catch(e) {}
-    const warmUp = new SpeechSynthesisUtterance('go');
-    warmUp.volume = 0;
-    const wv = getPreferredVoice();
-    if (wv) warmUp.voice = wv;
-    window.speechSynthesis.speak(warmUp);
+    await new Promise(resolve => {
+      const warmUp = new SpeechSynthesisUtterance('go');
+      warmUp.volume = 0;
+      const wv = getPreferredVoice();
+      if (wv) warmUp.voice = wv;
+      warmUp.onend = warmUp.onerror = resolve;
+      setTimeout(resolve, 1500);
+      window.speechSynthesis.speak(warmUp);
+    });
   }
 }
 
@@ -2010,6 +2039,7 @@ function goSettings() {
     clearInterval(ls.timerInterval);
     if (ls._sleepResolve) { ls._sleepResolve(); ls._sleepResolve = null; }
     stopKeepAlive();
+    stopSpeechHeartbeat();
     releaseWakeLock();
   }
   state.screen = 'settings';
@@ -2046,6 +2076,7 @@ async function startPractice() {
 async function startListen() {
   await unlockAudio();
   startKeepAlive();
+  if (state.cfg.listenVoice) startSpeechHeartbeat();
   requestWakeLock();
   const ls = state.listenState;
   ls.active = true;
@@ -2100,10 +2131,12 @@ async function startListen() {
       if (ls.stopRequested) break;
       await speakWord(word);
       if (ls.stopRequested) break;
-      // iOS holds AVAudioSession ducked for up to ~1.5 s after speech ends.
-      // Resume AudioContext explicitly, then wait before morse repeats start.
+      // iOS holds AVAudioSession ducked for up to ~2.5 s after speech ends.
+      // Resume AudioContext + restart silent audio loop to reclaim media
+      // session at full volume before morse repeats.
       try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
-      await listenSleep(Math.max(stdGap, 1500), ls);
+      try { if (_silentAudio) { _silentAudio.pause(); _silentAudio.currentTime = 0; await _silentAudio.play(); } } catch(e) {}
+      await listenSleep(Math.max(stdGap, 2500), ls);
       if (ls.stopRequested) break;
     } else {
       // Voice OFF: configurable gap between words (before first morse)
@@ -2137,6 +2170,7 @@ function stopListen() {
   clearInterval(ls.timerInterval);
   if (ls._sleepResolve) { ls._sleepResolve(); ls._sleepResolve = null; }
   stopKeepAlive();
+  stopSpeechHeartbeat();
   releaseWakeLock();
   state.screen = 'listenSummary';
   render();
