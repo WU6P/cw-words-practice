@@ -217,27 +217,48 @@ function _encodeWavBlob(samples, sr) {
   return new Blob([buf], { type: 'audio/wav' });
 }
 
+// A SINGLE reused HTMLAudioElement for Morse. iOS Safari caps a tab at a
+// handful of concurrent HTMLMediaElements; creating a fresh Audio per word
+// quickly exhausts the pool and silent-fails (symptoms: morse cuts short on
+// word 2, gone entirely by word 3, voice unaffected).
+let _morseAudio = null;
+let _lastMorseUrl = null;
+function _ensureMorseAudio() {
+  if (_morseAudio) return _morseAudio;
+  const a = new Audio();
+  a.preload = 'auto';
+  a.playsInline = true;
+  a.setAttribute('playsinline', '');
+  _morseAudio = a;
+  return a;
+}
+
 function _playPcmBlob(samples, sr, totalSec) {
   return new Promise(resolve => {
     const url = URL.createObjectURL(_encodeWavBlob(samples, sr));
-    const a = new Audio(url);
-    a.preload = 'auto';
-    a.playsInline = true;
-    a.setAttribute('playsinline', '');
+    const a = _ensureMorseAudio();
+    const prevUrl = _lastMorseUrl;
+    _lastMorseUrl = url;
     let done = false;
     const finish = () => {
       if (done) return;
       done = true;
-      try { a.pause(); } catch (e) {}
-      URL.revokeObjectURL(url);
+      a.removeEventListener('ended', finish);
+      a.removeEventListener('error', finish);
       resolve();
     };
     a.addEventListener('ended', finish);
     a.addEventListener('error', finish);
+    try { a.pause(); } catch (e) {}
+    a.src = url;
+    try { a.load(); } catch (e) {}
+    // Revoke the previous blob *after* the new src has been assigned so iOS
+    // doesn't tear down the element while we're swapping sources.
+    if (prevUrl) setTimeout(() => { try { URL.revokeObjectURL(prevUrl); } catch (e) {} }, 100);
     // Watchdog: if iOS drops onended in some background state, don't hang.
-    setTimeout(finish, (totalSec + 1.5) * 1000);
+    setTimeout(finish, (totalSec + 2.0) * 1000);
     const p = a.play();
-    if (p && p.catch) p.catch(finish);
+    if (p && p.catch) p.catch(() => finish());
   });
 }
 
