@@ -157,10 +157,43 @@ const _isIOS = (() => {
 })();
 
 let _ctx = null;
+let _masterGain = null;
 function getCtx() {
-  if (!_ctx || _ctx.state === 'closed') _ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (!_ctx || _ctx.state === 'closed') {
+    _ctx = new (window.AudioContext || window.webkitAudioContext)();
+    _masterGain = null;   // stale on context recreation; rebuilt lazily by getMaster()
+  }
   if (_ctx.state === 'suspended') _ctx.resume();
   return _ctx;
+}
+
+// Persistent master GainNode between every WebAudio source and the destination.
+// Routing all sources through this single node keeps the output graph "hot" so
+// per-word BufferSources don't trigger a fresh-connection fade-in on macOS.
+function getMaster() {
+  const ctx = getCtx();
+  if (!_masterGain) {
+    _masterGain = ctx.createGain();
+    _masterGain.gain.value = 1.0;
+    _masterGain.connect(ctx.destination);
+  }
+  return _masterGain;
+}
+
+// Schedule a short silent BufferSource through the master gain. Used to absorb
+// audio-stack warm-up (cold AudioContext, post-speech recovery) so the next
+// real playback starts at full amplitude on its very first sample.
+function primeAudio(durSec = 0.15) {
+  const ctx = getCtx();
+  const master = getMaster();
+  const sr = ctx.sampleRate;
+  const n = Math.max(1, Math.floor(durSec * sr));
+  const buf = ctx.createBuffer(1, n, sr);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(master);
+  src.start(ctx.currentTime);
+  setTimeout(() => { try { src.disconnect(); } catch(e) {} }, (durSec + 0.5) * 1000);
 }
 
 // Silent HTMLAudioElement loop — routes iOS WebAudio through the media channel
@@ -309,7 +342,11 @@ function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency) {
   const gapUnit = Math.max(dit, (totalWordTime - charUnitsTime) / 19);
 
   const syms = [];
-  let tSec = 0;
+  // 100 ms leading silence: HTMLAudioElement decoder ramp-up consistently
+  // affects the first ~50-100 ms of any new blob. Prepending silence means
+  // the first real dit lands on a fully-warm decoder, eliminating the
+  // "first symbol of every word is quieter" symptom on iOS.
+  let tSec = 0.1;
   text.trim().split(/\s+/).forEach((word, wi, arr) => {
     tokenize(word).forEach(char => {
       const code = MORSE[char];
@@ -329,7 +366,7 @@ function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency) {
   const totalSamples = Math.ceil(tSec * sr);
   const data = new Float32Array(totalSamples);
   const twoPiF = 2 * Math.PI * frequency;
-  const amp = (state.cfg.cwVolume ?? 50) / 100 * 0.85;
+  const amp = (state.cfg.cwVolume ?? 75) / 100;
 
   for (const [symStart, dur] of syms) {
     const ramp = Math.min(0.006, dur * 0.15);
@@ -398,7 +435,7 @@ function startKeepAlive() {
   const osc = ctx.createOscillator();
   const g = ctx.createGain();
   g.gain.value = 0;
-  osc.connect(g); g.connect(ctx.destination);
+  osc.connect(g); g.connect(getMaster());
   osc.start();
   _keepAlive = { osc, g };
 }
@@ -478,14 +515,14 @@ function playMorseAudio(text, charWpm, effectiveWpm, frequency) {
       const n  = s1 - s0;
       for (let i = 0; i < n; i++) {
         const env = i < ri ? i / ri : (n - 1 - i) < ri ? (n - 1 - i) / ri : 1.0;
-        data[s0 + i] = ((state.cfg.cwVolume ?? 50) / 100 * 0.85) * env * Math.sin(twoPiF * (s0 + i) / sr);
+        data[s0 + i] = ((state.cfg.cwVolume ?? 75) / 100) * env * Math.sin(twoPiF * (s0 + i) / sr);
       }
     }
 
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(ctx.destination);
-    src.start(ctx.currentTime + 0.05);
+    src.connect(getMaster());
+    src.start(ctx.currentTime + 0.12);
     setTimeout(() => { try { src.disconnect(); } catch(e) {} }, (tSec + 1.0) * 1000);
     setTimeout(resolve, (tSec + 0.3) * 1000);
   });
@@ -665,7 +702,7 @@ const state = {
     voiceGender:      _saved.voiceGender      ?? 'female',
     voiceRate:        _saved.voiceRate        ?? 1.25,
     voiceVolume:      _saved.voiceVolume      ?? 75,
-    cwVolume:         _saved.cwVolume         ?? 50,
+    cwVolume:         _saved.cwVolume         ?? 75,
     allowCloudVoice:  _saved.allowCloudVoice  ?? false,
     saveMissedWords:  _saved.saveMissedWords  ?? true,
   },
@@ -783,8 +820,8 @@ function playListenBeep(charWpm, frequency) {
     }
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(ctx.destination);
-    src.start(ctx.currentTime + 0.05);
+    src.connect(getMaster());
+    src.start(ctx.currentTime + 0.12);
     setTimeout(() => { try { src.disconnect(); } catch(e) {} }, (dit + 1.0) * 1000);
     setTimeout(resolve, (dit + 0.15) * 1000);
   });
@@ -2273,6 +2310,9 @@ async function unlockAudio() {
   gain.gain.value = 0;
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + 0.001);
+  // Warm the audio output stack so the first real playback starts at full
+  // amplitude on its very first sample (kills the cold-start fade on macOS).
+  primeAudio(0.2);
 }
 
 function playTestR() {
@@ -2332,6 +2372,7 @@ async function startPractice() {
 async function startListen() {
   warmUpSpeechSync();           // MUST be first — synchronous speech unlock for iOS
   await unlockAudio();
+  primeAudio(0.2);              // belt-and-suspenders: warm the output stack before the first beep/word
   startKeepAlive();
   if (state.cfg.listenVoice) startSpeechHeartbeat();
   requestWakeLock();
@@ -2395,6 +2436,10 @@ async function startListen() {
       if (ls.stopRequested) break;
       // Resume AudioContext in case iOS suspended it during speech.
       try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
+      // Macos audio stack is briefly attenuated after speechSynthesis returns;
+      // a silent prime through the master gain absorbs the recovery dip so the
+      // next morse repeat starts at full amplitude.
+      primeAudio(0.15);
       await listenSleep(Math.max(stdGap, 1000), ls);
       if (ls.stopRequested) break;
       for (let r = 0; r < cfg.listenRepeat; r++) {
