@@ -1,3 +1,26 @@
+<!--
+  MIT License
+
+  Copyright (c) 2026 Nianfeng Li WU6P
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1159,12 +1182,15 @@ function renderAboutContent(t) {
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
 
-  const copyrightBox = el('div', { style:{
+  const licenseBox = el('div', { style:{
     marginTop:'20px', padding:'16px', background:t.accentDim,
-    border:`1px solid ${t.accent}44`, borderRadius:'10px', textAlign:'center',
+    border:`1px solid ${t.accent}44`, borderRadius:'10px',
   }});
-  copyrightBox.appendChild(el('div', { style:{ fontSize:'13px', color:t.text, fontWeight:'600' }}, 'Copyright © 2026 Nianfeng Li, WU6P'));
-  div.appendChild(copyrightBox);
+  licenseBox.appendChild(el('div', { style:{ fontSize:'13px', color:t.text, fontWeight:'700', marginBottom:'8px' }}, 'MIT License'));
+  licenseBox.appendChild(el('div', { style:{ fontSize:'12px', color:t.text, fontWeight:'600', marginBottom:'10px' }}, 'Copyright © 2026 Nianfeng Li WU6P'));
+  const licenseText = 'Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.';
+  licenseBox.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, lineHeight:'1.6' }}, licenseText));
+  div.appendChild(licenseBox);
 
   return div;
 }
