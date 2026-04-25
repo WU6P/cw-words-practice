@@ -1993,6 +1993,21 @@ function renderToggle(t, on, onClick) {
 }
 
 // ── ACTIONS ───────────────────────────────────────────────────────────────────
+// SYNCHRONOUS speech warm-up. iOS Safari binds speechSynthesis permission to
+// the synchronous user-gesture chain — the very first speak() call must happen
+// BEFORE any await/Promise/setTimeout in the click handler, otherwise iOS
+// silently drops it (and every subsequent call this session). Callers must
+// invoke this at the top of their click handler, before unlockAudio().
+function warmUpSpeechSync() {
+  if (!window.speechSynthesis) return;
+  try { window.speechSynthesis.cancel(); } catch(e) {}
+  const u = new SpeechSynthesisUtterance('go');
+  u.volume = 0;
+  const v = getPreferredVoice();
+  if (v) u.voice = v;
+  try { window.speechSynthesis.speak(u); } catch(e) {}
+}
+
 async function unlockAudio() {
   // Must be called synchronously inside a user-gesture handler to satisfy iOS
   const ctx = getCtx();
@@ -2007,22 +2022,6 @@ async function unlockAudio() {
   gain.gain.value = 0;
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + 0.001);
-  // Warm up speechSynthesis while still inside the user gesture so iOS Safari
-  // permits speak() calls later. Must use real (non-empty) text — iOS discards
-  // empty utterances without initialising the speech engine. Awaiting the
-  // utterance ensures iOS has actually processed it before we proceed.
-  if (window.speechSynthesis) {
-    try { window.speechSynthesis.cancel(); } catch(e) {}
-    await new Promise(resolve => {
-      const warmUp = new SpeechSynthesisUtterance('go');
-      warmUp.volume = 0;
-      const wv = getPreferredVoice();
-      if (wv) warmUp.voice = wv;
-      warmUp.onend = warmUp.onerror = resolve;
-      setTimeout(resolve, 1500);
-      window.speechSynthesis.speak(warmUp);
-    });
-  }
 }
 
 function playTestR() {
@@ -2048,6 +2047,7 @@ function goSettings() {
 }
 
 async function startPractice() {
+  warmUpSpeechSync();           // MUST be first — synchronous speech unlock for iOS
   await unlockAudio();          // iOS audio unlock — must stay within gesture handler
   clearTimeout(state.autoPlayTimer);
 
@@ -2074,6 +2074,7 @@ async function startPractice() {
 }
 
 async function startListen() {
+  warmUpSpeechSync();           // MUST be first — synchronous speech unlock for iOS
   await unlockAudio();
   startKeepAlive();
   if (state.cfg.listenVoice) startSpeechHeartbeat();
@@ -2131,11 +2132,9 @@ async function startListen() {
       if (ls.stopRequested) break;
       await speakWord(word);
       if (ls.stopRequested) break;
-      // iOS holds AVAudioSession ducked for up to ~2.5 s after speech ends.
-      // Resume AudioContext + restart silent audio loop to reclaim media
-      // session at full volume before morse repeats.
+      // iOS auto-ducks WebAudio output for up to ~2.5 s after speech ends.
+      // Resume AudioContext (may have been suspended) and wait it out.
       try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
-      try { if (_silentAudio) { _silentAudio.pause(); _silentAudio.currentTime = 0; await _silentAudio.play(); } } catch(e) {}
       await listenSleep(Math.max(stdGap, 2500), ls);
       if (ls.stopRequested) break;
     } else {
