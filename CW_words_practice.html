@@ -1174,8 +1174,8 @@ function renderSettings(t) {
   const voiceRevealRow = el('div', { style:{
     display:'flex', alignItems:'center', justifyContent:'space-between',
     padding:'12px 16px', marginBottom:'16px',
-    background:t.bgCard, border:`1px solid ${cfg.listenVoice ? t.accent : t.border}`,
-    borderRadius:'10px', transition:'border-color 0.15s',
+    background:t.bgCard, border:`1px solid ${t.border}`,
+    borderRadius:'10px',
   }});
   const voiceRevealLeft = el('div', {});
   voiceRevealLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, 'Voice Reveal'));
@@ -2077,6 +2077,9 @@ function goSettings() {
 async function startPractice() {
   warmUpSpeechSync();           // MUST be first — synchronous speech unlock for iOS
   await unlockAudio();          // iOS audio unlock — must stay within gesture handler
+  // Run the speech heartbeat in practice too when voice is on, so iOS WebAudio
+  // ducking state matches listen mode and morse playback is consistently leveled.
+  if (state.cfg.listenVoice) startSpeechHeartbeat();
   clearTimeout(state.autoPlayTimer);
 
   if (state.cfg.listKey === 'missed') {
@@ -2411,7 +2414,7 @@ function handleAnswer(choice) {
   if (ok) {
     if (state.cfg.listenVoice) speakWord(choice);
     setTimeout(() => {
-      if (sessionDone) { updateMissedWords(state.sessionLog); state.screen = 'summary'; render(); return; }
+      if (sessionDone) { stopSpeechHeartbeat(); updateMissedWords(state.sessionLog); state.screen = 'summary'; render(); return; }
       handleNext();
     }, 1100);
   } else {
