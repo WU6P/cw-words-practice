@@ -386,18 +386,30 @@ function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency) {
 function playListenBeepBlob(charWpm, frequency) {
   const sr = 22050;
   const dit = 1.2 / charWpm;
-  const n = Math.ceil(dit * sr);
-  const data = new Float32Array(n);
+  // iOS HTMLAudioElement decoder warm-up consumes the first ~150-200 ms of any
+  // new blob. The original 48 ms beep was getting eaten entirely. Layout the
+  // blob with leading silence so warm-up happens before the tone, a tone of at
+  // least 80 ms for presence at any WPM, and trailing silence so the 'ended'
+  // event has cushion and doesn't clip the tone tail.
+  const leadSec = 0.20;
+  const toneSec = Math.max(dit, 0.08);
+  const tailSec = 0.10;
+  const totalSec = leadSec + toneSec + tailSec;
+  const total = Math.ceil(totalSec * sr);
+  const data = new Float32Array(total);
   const twoPiF = 2 * Math.PI * (frequency + 100);
-  const ri = Math.max(1, Math.round(Math.min(0.006, dit * 0.15) * sr));
+  const t0 = Math.round(leadSec * sr);
+  const tn = Math.min(t0 + Math.round(toneSec * sr), total);
+  const ri = Math.max(1, Math.round(Math.min(0.006, toneSec * 0.15) * sr));
   // Beep tracks the user's cwVolume at half loudness so it stays an audible cue
   // against the Morse, not a fixed amplitude that gets drowned out at high cwVolume.
   const beepAmp = (state.cfg.cwVolume ?? 75) / 100 * 0.5;
-  for (let i = 0; i < n; i++) {
-    const env = i < ri ? i / ri : (n - 1 - i) < ri ? (n - 1 - i) / ri : 1.0;
-    data[i] = beepAmp * env * Math.sin(twoPiF * i / sr);
+  const span = tn - t0;
+  for (let i = 0; i < span; i++) {
+    const env = i < ri ? i / ri : (span - 1 - i) < ri ? (span - 1 - i) / ri : 1.0;
+    data[t0 + i] = beepAmp * env * Math.sin(twoPiF * (t0 + i) / sr);
   }
-  return _playPcmBlob(data, sr, dit);
+  return _playPcmBlob(data, sr, totalSec);
 }
 
 // Screen Wake Lock — keeps the phone awake during long Listen sessions.
@@ -1219,7 +1231,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '1.4.1');
+  infoRow('Version', '1.4.2');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
