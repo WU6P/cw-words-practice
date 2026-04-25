@@ -417,11 +417,12 @@ const state = {
     sessionSize:    _saved.sessionSize    ?? 20,
     listenMode:     _saved.listenMode     ?? false,
     listenDuration: _saved.listenDuration ?? 1800,
-    listenRepeat:   _saved.listenRepeat   ?? 4,
-    listenDelay:    _saved.listenDelay    ?? 2,
+    listenRepeat:   _saved.listenRepeat   ?? 2,
+    listenDelay:    _saved.listenDelay    ?? 3,
     listenVoice:      _saved.listenVoice      ?? true,
     voiceGender:      _saved.voiceGender      ?? 'female',
     voiceRate:        _saved.voiceRate        ?? 1.25,
+    voiceVolume:      _saved.voiceVolume      ?? 75,
     allowCloudVoice:  _saved.allowCloudVoice  ?? false,
     saveMissedWords:  _saved.saveMissedWords  ?? true,
   },
@@ -609,6 +610,7 @@ function speakWord(text) {
     if (!window.speechSynthesis) { resolve(); return; }
     const utt = new SpeechSynthesisUtterance(text);
     utt.rate = state.cfg.voiceRate ?? 1;
+    utt.volume = (state.cfg.voiceVolume ?? 75) / 100;
     const v = getPreferredVoice();
     if (v) utt.voice = v;
     let done = false;
@@ -936,7 +938,6 @@ function renderAboutContent(t) {
     border:`1px solid ${t.accent}44`, borderRadius:'10px', textAlign:'center',
   }});
   copyrightBox.appendChild(el('div', { style:{ fontSize:'13px', color:t.text, fontWeight:'600' }}, 'Copyright © 2026 Nianfeng Li, WU6P'));
-  copyrightBox.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'4px' }}, 'All rights reserved'));
   div.appendChild(copyrightBox);
 
   return div;
@@ -973,7 +974,7 @@ function renderHeader(t) {
   left.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted, letterSpacing:'1px' }}, screenLabel));
 
   const right = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
-  if (progress > 0 && screen === 'practice') {
+  if (progress > 0 && screen === 'practice' && state.cfg.listenMode === false) {
     const progressWrap = el('div', { style:{ display:'flex', alignItems:'center', gap:'6px' }});
     const bar = el('div', { style:{ width:'64px', height:'3px', borderRadius:'1px', background:t.border, position:'relative' }});
     bar.appendChild(el('div', { style:{
@@ -985,7 +986,7 @@ function renderHeader(t) {
     progressWrap.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted }}, `${progress}/${cfg.sessionSize}`));
     right.appendChild(progressWrap);
   }
-  if (score.t > 0 && screen !== 'settings') {
+  if (score.t > 0 && screen !== 'settings' && screen !== 'listen' && screen !== 'listenSummary') {
     const scoreDiv = el('div', { style:{ textAlign:'right' }});
     scoreDiv.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'16px', fontWeight:'700', color:t.text }}, `${score.c}/${score.t}`));
     scoreDiv.appendChild(el('div', { style:{
@@ -1164,7 +1165,7 @@ function renderSettings(t) {
   }});
   const settingsLeft = el('div', {});
   settingsLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, '⚙ Settings'));
-  settingsLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Tone · Session · Farnsworth · Listen Only · Theme'));
+  settingsLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Tone · Mode · Farnsworth · Voice Reveal · Theme'));
   settingsToggleBtn.appendChild(settingsLeft);
   settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'16px', marginLeft:'auto' }}, '›'));
   settingsToggleBtn.addEventListener('click', () => { state.settingsOpen = true; render(); });
@@ -1475,6 +1476,32 @@ function renderSettingsModal(t) {
     speedSel.addEventListener('change', () => { cfg.voiceRate = parseFloat(speedSel.value); saveTweaks(); });
     speedRow.appendChild(speedSel);
     secVoice.appendChild(speedRow);
+    secVoice.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'12px 0' }}));
+
+    // Voice Volume slider
+    const volRow = el('div', { style:{ marginBottom:'12px' }});
+    const volHdr = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'8px' }});
+    const volLeft = el('div', {});
+    volLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'13px', color:t.text }}, 'Voice Volume'));
+    volLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Volume for spoken word reveal'));
+    volHdr.appendChild(volLeft);
+    const volValSpan = el('span', { style:{ fontFamily:t.mono, fontSize:'15px', fontWeight:'600', color:t.accent, minWidth:'42px', textAlign:'right' }}, `${cfg.voiceVolume}%`);
+    volHdr.appendChild(volValSpan);
+    volRow.appendChild(volHdr);
+    const volSliderRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
+    const volMinus = el('button', { style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '−');
+    const volSlider = el('input', { type:'range', min:'1', max:'100', value:String(cfg.voiceVolume), style:{ flex:'1', accentColor:t.accent }});
+    const volPlus  = el('button', { style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '+');
+    const updateVol = v => { cfg.voiceVolume = Math.min(100, Math.max(1, v)); volSlider.value = cfg.voiceVolume; volValSpan.textContent = `${cfg.voiceVolume}%`; };
+    volSlider.addEventListener('input',  () => updateVol(+volSlider.value));
+    volSlider.addEventListener('change', () => saveTweaks());
+    volMinus.addEventListener('click', () => { updateVol(cfg.voiceVolume - 5); saveTweaks(); });
+    volPlus.addEventListener('click',  () => { updateVol(cfg.voiceVolume + 5); saveTweaks(); });
+    volSliderRow.appendChild(volMinus);
+    volSliderRow.appendChild(volSlider);
+    volSliderRow.appendChild(volPlus);
+    volRow.appendChild(volSliderRow);
+    secVoice.appendChild(volRow);
     secVoice.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'12px 0' }}));
 
     // Allow Cloud Voice toggle
@@ -1944,13 +1971,20 @@ async function unlockAudio() {
   // Start (or resume) silent HTMLAudio loop so WebAudio routes through the iOS
   // media channel rather than the ringer (bypasses the hardware silent switch).
   try { await ensureSilentAudio().play(); } catch (e) {}
-  // Silent blip — satisfies iOS Safari's gesture requirement
+  // Silent blip — satisfies iOS Safari's WebAudio gesture requirement
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.connect(gain); gain.connect(ctx.destination);
   gain.gain.value = 0;
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + 0.001);
+  // Warm up speechSynthesis while still inside the user gesture so iOS Safari
+  // allows speak() calls later in async loops without silently dropping them.
+  if (window.speechSynthesis) {
+    const warmUp = new SpeechSynthesisUtterance('');
+    warmUp.volume = 0;
+    window.speechSynthesis.speak(warmUp);
+  }
 }
 
 function playTestR() {
@@ -2057,7 +2091,9 @@ async function startListen() {
       if (ls.stopRequested) break;
       await speakWord(word);
       if (ls.stopRequested) break;
-      await listenSleep(stdGap, ls);
+      // Wait at least 700 ms after speech so iOS audio-session ducking can
+      // release before WebAudio morse playback resumes at full volume.
+      await listenSleep(Math.max(stdGap, 700), ls);
       if (ls.stopRequested) break;
     } else {
       // Voice OFF: configurable gap between words (before first morse)
