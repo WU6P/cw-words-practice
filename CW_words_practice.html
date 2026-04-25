@@ -240,16 +240,23 @@ function _playPcmBlob(samples, sr, totalSec) {
     const prevUrl = _lastMorseUrl;
     _lastMorseUrl = url;
     let done = false;
+    let started = false;
+    let startTimer = null;
+    let watchdogTimer = null;
     const finish = () => {
       if (done) return;
       done = true;
+      clearTimeout(startTimer);
+      clearTimeout(watchdogTimer);
       a.removeEventListener('ended', finish);
       a.removeEventListener('error', finish);
       a.removeEventListener('canplaythrough', start);
       resolve();
     };
     const start = () => {
-      a.removeEventListener('canplaythrough', start);
+      if (started || done) return;       // guard: prevents the 800 ms fallback
+      started = true;                    // from re-triggering play() after a
+      a.removeEventListener('canplaythrough', start);  // short word already ended
       const p = a.play();
       if (p && p.catch) p.catch(() => finish());
     };
@@ -265,9 +272,9 @@ function _playPcmBlob(samples, sr, totalSec) {
     if (prevUrl) setTimeout(() => { try { URL.revokeObjectURL(prevUrl); } catch (e) {} }, 100);
     // Fallback: if canplaythrough doesn't fire in 800 ms (rare on iOS for short
     // blobs), start playback anyway — better a slight pop than a stalled loop.
-    setTimeout(start, 800);
+    startTimer = setTimeout(start, 800);
     // Watchdog: if iOS drops onended in some background state, don't hang.
-    setTimeout(finish, (totalSec + 3.0) * 1000);
+    watchdogTimer = setTimeout(finish, (totalSec + 3.0) * 1000);
   });
 }
 
