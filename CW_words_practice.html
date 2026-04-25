@@ -608,6 +608,10 @@ function getPreferredVoice() {
 function speakWord(text) {
   return new Promise(resolve => {
     if (!window.speechSynthesis) { resolve(); return; }
+    // iOS Safari can leave the synthesis engine paused or with a stale queue.
+    // cancel() + resume() resets both conditions before each utterance.
+    try { window.speechSynthesis.cancel(); } catch(e) {}
+    try { window.speechSynthesis.resume(); } catch(e) {}
     const utt = new SpeechSynthesisUtterance(text);
     utt.rate = state.cfg.voiceRate ?? 1;
     utt.volume = (state.cfg.voiceVolume ?? 75) / 100;
@@ -1980,9 +1984,14 @@ async function unlockAudio() {
   osc.stop(ctx.currentTime + 0.001);
   // Warm up speechSynthesis while still inside the user gesture so iOS Safari
   // allows speak() calls later in async loops without silently dropping them.
+  // Must use real (non-empty) text — iOS discards empty utterances without
+  // initialising the speech engine, which defeats the purpose of the warm-up.
   if (window.speechSynthesis) {
-    const warmUp = new SpeechSynthesisUtterance('');
+    try { window.speechSynthesis.cancel(); } catch(e) {}
+    const warmUp = new SpeechSynthesisUtterance('go');
     warmUp.volume = 0;
+    const wv = getPreferredVoice();
+    if (wv) warmUp.voice = wv;
     window.speechSynthesis.speak(warmUp);
   }
 }
@@ -2091,9 +2100,10 @@ async function startListen() {
       if (ls.stopRequested) break;
       await speakWord(word);
       if (ls.stopRequested) break;
-      // Wait at least 700 ms after speech so iOS audio-session ducking can
-      // release before WebAudio morse playback resumes at full volume.
-      await listenSleep(Math.max(stdGap, 700), ls);
+      // iOS holds AVAudioSession ducked for up to ~1.5 s after speech ends.
+      // Resume AudioContext explicitly, then wait before morse repeats start.
+      try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
+      await listenSleep(Math.max(stdGap, 1500), ls);
       if (ls.stopRequested) break;
     } else {
       // Voice OFF: configurable gap between words (before first morse)
