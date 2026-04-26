@@ -342,11 +342,10 @@ function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency) {
   const gapUnit = Math.max(dit, (totalWordTime - charUnitsTime) / 19);
 
   const syms = [];
-  // 100 ms leading silence: HTMLAudioElement decoder ramp-up consistently
-  // affects the first ~50-100 ms of any new blob. Prepending silence means
-  // the first real dit lands on a fully-warm decoder, eliminating the
-  // "first symbol of every word is quieter" symptom on iOS.
-  let tSec = 0.1;
+  // 200 ms leading silence: absorbs both the HTMLAudio decoder ramp-up
+  // (~50-100 ms) and the iOS audio session recovery after TTS, so the first
+  // real dit always lands at full volume.
+  let tSec = 0.2;
   text.trim().split(/\s+/).forEach((word, wi, arr) => {
     tokenize(word).forEach(char => {
       const code = MORSE[char];
@@ -2466,12 +2465,8 @@ async function startListen() {
       // to release before the next HTMLAudio Morse blob, so the repeat doesn't
       // start ducked. The WebAudio prime absorbs macOS cold-start attenuation.
       primeAudio(0.15);
-      // 1250ms cushion lets iOS release TTS audio focus; extra 500ms before
-      // the first repeat gives the HTMLAudio session time to fully recover so
-      // the first symbol of the repeat isn't ducked.
-      await listenSleep(Math.max(stdGap, 1000) + 250, ls);
-      if (ls.stopRequested) break;
-      await listenSleep(750, ls);
+      // 1500ms lets iOS fully release TTS audio focus before the first repeat.
+      await listenSleep(1500, ls);
       if (ls.stopRequested) break;
       for (let r = 0; r < cfg.listenRepeat; r++) {
         if (ls.stopRequested) break;
