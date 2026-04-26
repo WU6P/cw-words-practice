@@ -2471,7 +2471,7 @@ async function startListen() {
       // the first symbol of the repeat isn't ducked.
       await listenSleep(Math.max(stdGap, 1000) + 250, ls);
       if (ls.stopRequested) break;
-      await listenSleep(500, ls);
+      await listenSleep(750, ls);
       if (ls.stopRequested) break;
       for (let r = 0; r < cfg.listenRepeat; r++) {
         if (ls.stopRequested) break;
