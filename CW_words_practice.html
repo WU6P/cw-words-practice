@@ -235,7 +235,7 @@ function setupMediaSession(playing) {
   try {
     if (playing) {
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: 'CW Practice — Listen Mode',
+        title: 'CW Words — Listen Mode',
         artist: 'CW Words Practice',
       });
       navigator.mediaSession.setActionHandler('play', () => {});
@@ -1247,7 +1247,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '1.5.5');
+  infoRow('Version', '2.0');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
@@ -1937,11 +1937,11 @@ function renderSettingsModal(t) {
 // ── LISTEN SCREEN ─────────────────────────────────────────────────────────────
 function renderListen(t) {
   const ls = state.listenState;
-  const wrap = el('div', { className:'fade-in', style:{ paddingTop:'48px', paddingBottom:'32px', textAlign:'center' }});
+  const wrap = el('div', { className:'fade-in', style:{ paddingTop:'80px', paddingBottom:'32px', textAlign:'center' }});
   wrap.appendChild(el('div', { id:'listen-word', style:{
     fontFamily:t.mono, fontSize:'clamp(32px, 12vw, 56px)', fontWeight:'700',
-    color:t.accent, letterSpacing:'4px', marginBottom:'28px',
-    minHeight:'72px', display:'flex', alignItems:'center', justifyContent:'center',
+    color:t.accent, letterSpacing:'4px', marginBottom:'64px',
+    minHeight:'80px', display:'flex', alignItems:'center', justifyContent:'center',
   }}, ls.currentWord || '…'));
   const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
   const wpmStr = state.cfg.farnsworth ? `${state.cfg.wpm}/${fwpm} WPM` : `${state.cfg.wpm} WPM`;

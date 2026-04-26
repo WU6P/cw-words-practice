@@ -1,6 +1,6 @@
 {
   "name": "CW Words Practice",
-  "short_name": "CW Practice",
+  "short_name": "CW Words",
   "description": "Morse code multiple-choice trainer for desktop and mobile",
   "start_url": "./CW_words_practice.html",
   "display": "standalone",
