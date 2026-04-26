@@ -313,25 +313,14 @@ function _playPcmBlob(samples, sr, totalSec) {
       if (started || done) return;       // guard: prevents the 800 ms fallback
       started = true;                    // from re-triggering play() after a
       a.removeEventListener('canplaythrough', start);  // short word already ended
-      // Ramp volume 0→1 over the 200 ms leading silence baked into every blob.
-      // iOS may still hold TTS audio focus when play() is called; starting at
-      // volume=0 and ramping up means any iOS ducking at t=0 is masked, and the
-      // first real dit always arrives at full amplitude.
-      a.volume = 0;
-      const t0 = performance.now();
-      const ramp = () => {
-        const frac = Math.min(1, (performance.now() - t0) / 200);
-        a.volume = frac;
-        if (frac < 1) requestAnimationFrame(ramp);
-      };
-      requestAnimationFrame(ramp);
+      a.volume = 1;
       const p = a.play();
       if (p && p.catch) p.catch(() => finish());
     };
     a.addEventListener('ended', finish);
     a.addEventListener('error', finish);
     a.addEventListener('canplaythrough', start, { once: true });
-    a.volume = 0;                    // will be ramped to 1 in start()
+    a.volume = 1;
     try { a.pause(); } catch (e) {}
     a.src = url;
     try { a.load(); } catch (e) {}
@@ -346,7 +335,7 @@ function _playPcmBlob(samples, sr, totalSec) {
   });
 }
 
-function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency) {
+function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency, leadSec = 0.2) {
   const sr = 22050;
   const dit = 1.2 / charWpm;
   const charUnitsTime = 31 * dit;
@@ -354,10 +343,11 @@ function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency) {
   const gapUnit = Math.max(dit, (totalWordTime - charUnitsTime) / 19);
 
   const syms = [];
-  // 200 ms leading silence: absorbs both the HTMLAudio decoder ramp-up
-  // (~50-100 ms) and the iOS audio session recovery after TTS, so the first
-  // real dit always lands at full volume.
-  let tSec = 0.2;
+  // Leading silence: absorbs the HTMLAudio decoder ramp-up (~50-100 ms).
+  // Callers can pass a larger leadSec to bake a post-TTS gap into the blob
+  // itself, so play() is called earlier and iOS finishes its audio-session
+  // ramp during the silence rather than during the first real dit.
+  let tSec = leadSec;
   text.trim().split(/\s+/).forEach((word, wi, arr) => {
     tokenize(word).forEach(char => {
       const code = MORSE[char];
@@ -2477,16 +2467,31 @@ async function startListen() {
       // to release before the next HTMLAudio Morse blob, so the repeat doesn't
       // start ducked. The WebAudio prime absorbs macOS cold-start attenuation.
       primeAudio(0.15);
-      // 1500ms lets iOS fully release TTS audio focus before the first repeat.
-      await listenSleep(1000, ls);
-      if (ls.stopRequested) break;
-      for (let r = 0; r < cfg.listenRepeat; r++) {
-        if (ls.stopRequested) break;
-        await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
-        if (ls.stopRequested) break;
-        if (r < cfg.listenRepeat - 1) {
-          await listenSleep(cfg.listenDelay * stdGap, ls);
+      if (_isIOS && cfg.listenRepeat > 0) {
+        // On iOS, call play() immediately instead of sleeping first. The iOS
+        // audio session ramp starts as soon as play() is called; baking 1200ms
+        // of silence into the first blob means the ramp completes during silence
+        // and the first dit lands at full volume. Net timing is unchanged.
+        for (let r = 0; r < cfg.listenRepeat; r++) {
           if (ls.stopRequested) break;
+          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, r === 0 ? 1.2 : 0.2);
+          if (ls.stopRequested) break;
+          if (r < cfg.listenRepeat - 1) {
+            await listenSleep(cfg.listenDelay * stdGap, ls);
+            if (ls.stopRequested) break;
+          }
+        }
+      } else {
+        await listenSleep(1000, ls);
+        if (ls.stopRequested) break;
+        for (let r = 0; r < cfg.listenRepeat; r++) {
+          if (ls.stopRequested) break;
+          await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
+          if (ls.stopRequested) break;
+          if (r < cfg.listenRepeat - 1) {
+            await listenSleep(cfg.listenDelay * stdGap, ls);
+            if (ls.stopRequested) break;
+          }
         }
       }
     } else {
