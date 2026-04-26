@@ -2844,6 +2844,9 @@ function showUpdateBanner() {
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').then(reg => {
+    // Force iOS to re-fetch sw.js on every load — without this, iOS PWAs can
+    // sit on a stale service worker indefinitely and never show the update banner.
+    reg.update().catch(() => {});
     const track = nw => {
       if (!nw) return;
       nw.addEventListener('statechange', () => {
