@@ -939,6 +939,13 @@ function speakWord(text) {
   });
 }
 
+// Rough estimate of how long speechSynthesis will take to speak text.
+// Used to time the parallel Morse blob so its tones begin right after TTS ends.
+// Formula: ~15 chars/sec at rate=1.0 (≈150 wpm × 6 chars/word), min 0.4 s.
+function estimateTtsSec(text, rate) {
+  return Math.max(0.4, text.length * 0.065 / Math.max(0.1, rate ?? 1));
+}
+
 function listenSleep(ms, ls) {
   return new Promise(resolve => {
     const id = setTimeout(resolve, Math.max(0, ms));
@@ -2479,44 +2486,28 @@ async function startListen() {
       if (ls.stopRequested) break;
       await listenSleep(cfg.listenDelay * stdGap, ls);
       if (ls.stopRequested) break;
+      // Kick off the first repeat blob NOW, in parallel with speech.
+      // The blob bakes in silence = estimated TTS duration + 0.5 s buffer, so
+      // its Morse tones begin after TTS ends and the duck has cleared — no
+      // low-volume ramp-up on the first dit regardless of how long the duck holds.
+      let firstRepeatP = null;
+      if (cfg.listenRepeat > 0) {
+        const estSec = estimateTtsSec(word, cfg.voiceRate ?? 1);
+        firstRepeatP = playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, estSec + 0.5);
+      }
       await speakWord(word);
       if (ls.stopRequested) break;
-      // Explicitly cancel TTS after onend fires — tells iOS to fully release
-      // the speech audio session immediately rather than holding it open.
       try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch(e) {}
-      // Resume AudioContext in case iOS suspended it during speech.
       try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
-      // After speech, iOS holds TTS audio focus for ~100-300 ms. Give it time
-      // to release before the next HTMLAudio Morse blob, so the repeat doesn't
-      // start ducked. The WebAudio prime absorbs macOS cold-start attenuation.
       primeAudio(0.15);
-      if (_isIOS && cfg.listenRepeat > 0) {
-        // On iOS, call play() immediately instead of sleeping first. The iOS
-        // audio session ramp starts as soon as play() is called; baking silence
-        // into the blob means the ramp completes during silence and the first
-        // dit lands at full volume. Net timing is unchanged.
-        // r=0 needs 1.0 s: iOS holds TTS audio focus for up to ~700 ms after
-        // speakWord() resolves; 0.5 s is not always enough to clear the duck.
-        for (let r = 0; r < cfg.listenRepeat; r++) {
-          if (ls.stopRequested) break;
-          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, r === 0 ? 1.0 : 0.5);
-          if (ls.stopRequested) break;
-          if (r < cfg.listenRepeat - 1) {
-            await listenSleep(cfg.listenDelay * stdGap, ls);
-            if (ls.stopRequested) break;
-          }
-        }
-      } else {
-        await listenSleep(1000, ls);
+      if (firstRepeatP) {
+        await firstRepeatP;
         if (ls.stopRequested) break;
-        for (let r = 0; r < cfg.listenRepeat; r++) {
+        for (let r = 1; r < cfg.listenRepeat; r++) {
+          await listenSleep(cfg.listenDelay * stdGap, ls);
           if (ls.stopRequested) break;
           await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
           if (ls.stopRequested) break;
-          if (r < cfg.listenRepeat - 1) {
-            await listenSleep(cfg.listenDelay * stdGap, ls);
-            if (ls.stopRequested) break;
-          }
         }
       }
     } else {
