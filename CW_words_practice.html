@@ -2466,7 +2466,7 @@ async function startListen() {
       // start ducked. The WebAudio prime absorbs macOS cold-start attenuation.
       primeAudio(0.15);
       // 1500ms lets iOS fully release TTS audio focus before the first repeat.
-      await listenSleep(1500, ls);
+      await listenSleep(1000, ls);
       if (ls.stopRequested) break;
       for (let r = 0; r < cfg.listenRepeat; r++) {
         if (ls.stopRequested) break;
