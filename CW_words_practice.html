@@ -2461,6 +2461,9 @@ async function startListen() {
       if (ls.stopRequested) break;
       await speakWord(word);
       if (ls.stopRequested) break;
+      // Explicitly cancel TTS after onend fires — tells iOS to fully release
+      // the speech audio session immediately rather than holding it open.
+      try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch(e) {}
       // Resume AudioContext in case iOS suspended it during speech.
       try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
       // After speech, iOS holds TTS audio focus for ~100-300 ms. Give it time
@@ -2474,7 +2477,7 @@ async function startListen() {
         // and the first dit lands at full volume. Net timing is unchanged.
         for (let r = 0; r < cfg.listenRepeat; r++) {
           if (ls.stopRequested) break;
-          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, r === 0 ? 1.5 : 0.2);
+          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, r === 0 ? 1.2 : 0.2);
           if (ls.stopRequested) break;
           if (r < cfg.listenRepeat - 1) {
             await listenSleep(cfg.listenDelay * stdGap, ls);
