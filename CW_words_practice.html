@@ -1237,7 +1237,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '1.5');
+  infoRow('Version', '1.5.2');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
@@ -2477,6 +2477,11 @@ async function startListen() {
           if (ls.stopRequested) break;
         }
       }
+      // Extra 500 ms after the voice word so iOS fully releases TTS audio
+      // focus before the next word's Morse starts (prevents first-symbol
+      // volume dip on the following word).
+      await listenSleep(500, ls);
+      if (ls.stopRequested) break;
     } else {
       // Voice OFF: standard gap, first morse, then listenRepeat additional plays with configurable gap between
       await listenSleep(stdGap, ls);

@@ -1,4 +1,4 @@
-const CACHE = 'cw-practice-v18';
+const CACHE = 'cw-practice-v19';
 const ASSETS = [
   './CW_words_practice.html',
   './manifest.json',
