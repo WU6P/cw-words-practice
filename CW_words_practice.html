@@ -313,13 +313,25 @@ function _playPcmBlob(samples, sr, totalSec) {
       if (started || done) return;       // guard: prevents the 800 ms fallback
       started = true;                    // from re-triggering play() after a
       a.removeEventListener('canplaythrough', start);  // short word already ended
+      // Ramp volume 0→1 over the 200 ms leading silence baked into every blob.
+      // iOS may still hold TTS audio focus when play() is called; starting at
+      // volume=0 and ramping up means any iOS ducking at t=0 is masked, and the
+      // first real dit always arrives at full amplitude.
+      a.volume = 0;
+      const t0 = performance.now();
+      const ramp = () => {
+        const frac = Math.min(1, (performance.now() - t0) / 200);
+        a.volume = frac;
+        if (frac < 1) requestAnimationFrame(ramp);
+      };
+      requestAnimationFrame(ramp);
       const p = a.play();
       if (p && p.catch) p.catch(() => finish());
     };
     a.addEventListener('ended', finish);
     a.addEventListener('error', finish);
     a.addEventListener('canplaythrough', start, { once: true });
-    a.volume = 1;                    // amplitude lives in the encoded PCM
+    a.volume = 0;                    // will be ramped to 1 in start()
     try { a.pause(); } catch (e) {}
     a.src = url;
     try { a.load(); } catch (e) {}
