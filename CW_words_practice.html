@@ -2376,16 +2376,14 @@ function goSettings() {
 }
 
 async function startPractice() {
-  warmUpSpeechSync();           // MUST be first — synchronous speech unlock for iOS
-  await unlockAudio();          // iOS audio unlock — must stay within gesture handler
-  // Run the speech heartbeat in practice too when voice is on, so iOS WebAudio
-  // ducking state matches listen mode and morse playback is consistently leveled.
-  if (state.cfg.listenVoice) startSpeechHeartbeat();
+  if (state._startingPractice || state.screen === 'practice') return;  // guard: ignore double-taps
+  state._startingPractice = true;
+  // Build the question synchronously so we can switch screens immediately.
   clearTimeout(state.autoPlayTimer);
-
   if (state.cfg.listKey === 'missed') {
     const missedList = getMissedWordsList();
     if (missedList.length === 0) {
+      state._startingPractice = false;
       state.screen = 'missedEmpty';
       render();
       return;
@@ -2394,20 +2392,32 @@ async function startPractice() {
   } else {
     state._missedSessionPool = null;
   }
-
   state.q = makeQuestion(state.cfg.listKey);
   state.chosen = null;
   state.screen = 'practice';
   state.playState = 'playing';
   state.score = { c:0, t:0 };
   state.sessionLog = [];
-  render();
+  render();                     // immediate screen switch on first tap
+  warmUpSpeechSync();           // MUST be called synchronously before any await
+  await unlockAudio();          // iOS audio unlock — must stay within gesture handler
+  state._startingPractice = false;
+  // Run the speech heartbeat in practice too when voice is on, so iOS WebAudio
+  // ducking state matches listen mode and morse playback is consistently leveled.
+  if (state.cfg.listenVoice) startSpeechHeartbeat();
   doPlay();
 }
 
 async function startListen() {
-  warmUpSpeechSync();           // MUST be first — synchronous speech unlock for iOS
+  const ls = state.listenState;
+  if (ls.active || ls._starting) return;   // guard: ignore double-taps during audio unlock
+  ls._starting = true;
+  // Switch screen immediately so the user sees the transition on the first tap.
+  state.screen = 'listen';
+  render();
+  warmUpSpeechSync();           // MUST be called synchronously before any await
   await unlockAudio();
+  ls._starting = false;
   primeAudio(0.2);              // belt-and-suspenders: warm the output stack before the first beep/word
   startKeepAlive();
   // No heartbeat in Listen mode — speakWord() runs every word cycle and keeps
@@ -2415,7 +2425,6 @@ async function startListen() {
   // audio focus to TTS and duck the HTMLAudio Morse element, causing volume
   // instability even when the phone is unlocked and the app is in foreground.
   requestWakeLock();
-  const ls = state.listenState;
   ls.active = true;
   ls.elapsed = 0;
   ls.wordCount = 0;
@@ -2429,7 +2438,6 @@ async function startListen() {
     if (te) te.textContent = fmtHMS(ls.elapsed);
     if (ls.elapsed >= state.cfg.listenDuration) stopListen();
   }, 1000);
-  state.screen = 'listen';
   render();
 
   const { cfg, tweaks } = state;
@@ -2484,12 +2492,14 @@ async function startListen() {
       primeAudio(0.15);
       if (_isIOS && cfg.listenRepeat > 0) {
         // On iOS, call play() immediately instead of sleeping first. The iOS
-        // audio session ramp starts as soon as play() is called; baking 1200ms
-        // of silence into the first blob means the ramp completes during silence
-        // and the first dit lands at full volume. Net timing is unchanged.
+        // audio session ramp starts as soon as play() is called; baking silence
+        // into the blob means the ramp completes during silence and the first
+        // dit lands at full volume. Net timing is unchanged.
+        // r=0 needs 1.0 s: iOS holds TTS audio focus for up to ~700 ms after
+        // speakWord() resolves; 0.5 s is not always enough to clear the duck.
         for (let r = 0; r < cfg.listenRepeat; r++) {
           if (ls.stopRequested) break;
-          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone);
+          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, r === 0 ? 1.0 : 0.5);
           if (ls.stopRequested) break;
           if (r < cfg.listenRepeat - 1) {
             await listenSleep(cfg.listenDelay * stdGap, ls);
