@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <rect width="192" height="192" rx="32" fill="#1c1400"></rect>
+  <rect width="192" height="192" rx="44" fill="#1c1400"></rect>
   <text x="96" y="62" text-anchor="middle" font-family="&#39;Courier New&#39;,monospace" font-size="28" font-weight="700" fill="#d4900a" letter-spacing="4">CW</text>
   <text x="96" y="94" text-anchor="middle" font-family="&#39;Courier New&#39;,monospace" font-size="28" font-weight="700" fill="#d4900a" letter-spacing="4">Words</text>
   <rect x="44" y="132" width="16" height="24" rx="3" fill="#d4900a"></rect>
