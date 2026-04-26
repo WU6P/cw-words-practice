@@ -2477,7 +2477,7 @@ async function startListen() {
         // and the first dit lands at full volume. Net timing is unchanged.
         for (let r = 0; r < cfg.listenRepeat; r++) {
           if (ls.stopRequested) break;
-          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, r === 0 ? 1.75 : 0.2);
+          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, r === 0 ? 2.0 : 0.2);
           if (ls.stopRequested) break;
           if (r < cfg.listenRepeat - 1) {
             await listenSleep(cfg.listenDelay * stdGap, ls);
