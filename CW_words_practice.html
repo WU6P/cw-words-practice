@@ -1945,8 +1945,13 @@ function renderListen(t) {
   }}, ls.currentWord || '…'));
   const fwpm = state.cfg.farnsworth ? Math.min(state.cfg.fwpm, state.cfg.wpm) : state.cfg.wpm;
   const wpmStr = state.cfg.farnsworth ? `${state.cfg.wpm}/${fwpm} WPM` : `${state.cfg.wpm} WPM`;
+  const sessionLabel = LIST_OPTS.find(o => o.key === state.cfg.listKey)?.label ?? state.cfg.listKey;
   wrap.appendChild(el('div', { style:{
     fontSize:'13px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px',
+    textTransform:'uppercase', marginBottom:'4px',
+  }}, sessionLabel));
+  wrap.appendChild(el('div', { style:{
+    fontSize:'13px', fontWeight:'600', color:t.accent, letterSpacing:'1.5px',
     textTransform:'uppercase', marginBottom:'8px',
   }}, wpmStr));
   wrap.appendChild(el('div', { id:'listen-timer', style:{
