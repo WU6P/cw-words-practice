@@ -369,13 +369,14 @@ function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency, leadSec = 0.
   const twoPiF = 2 * Math.PI * frequency;
   const amp = (state.cfg.cwVolume ?? 75) / 100;
 
-  // Fill the leading silence with ±1 LSB alternating samples. iOS treats
-  // all-zero PCM as "no media" and won't activate the audio session for it,
-  // meaning the iOS post-TTS volume ramp wouldn't start until the first real
-  // dit. Non-zero (but inaudible) samples force session activation at play().
+  // Fill the leading silence with a 1% amplitude tone. iOS treats all-zero
+  // PCM as "no media" and won't start its post-TTS audio session ramp until
+  // the first real dit. A faint but non-trivial tone forces session activation
+  // at play() so the ramp runs during the silence, not over the first dit.
   if (_isIOS) {
     const leadSamples = Math.round(leadSec * sr);
-    for (let i = 0; i < leadSamples; i++) data[i] = (i & 1) ? 1/32768 : -1/32768;
+    const twoPiFLead = 2 * Math.PI * frequency;
+    for (let i = 0; i < leadSamples; i++) data[i] = 0.01 * Math.sin(twoPiFLead * i / sr);
   }
 
   for (const [symStart, dur] of syms) {
