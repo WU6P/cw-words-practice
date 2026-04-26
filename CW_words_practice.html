@@ -335,7 +335,7 @@ function _playPcmBlob(samples, sr, totalSec) {
   });
 }
 
-function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency, leadSec = 0.2) {
+function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency, leadSec = _isIOS ? 0.5 : 0.2) {
   const sr = 22050;
   const dit = 1.2 / charWpm;
   const charUnitsTime = 31 * dit;
@@ -2467,9 +2467,7 @@ async function startListen() {
       // Voice ON: standard gap, first morse, configurable gap before voice, voice reveal, then repeats
       await listenSleep(stdGap, ls);
       if (ls.stopRequested) break;
-      // 0.50 s lead on iOS: gives the audio session time to stabilise after the
-      // preceding beep+gap, and covers any residual _silentAudio loop-boundary jitter.
-      await playMorseFn(word, cfg.wpm, fwpm, state.currentTone, _isIOS ? 0.50 : 0.20);
+      await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
       if (ls.stopRequested) break;
       await listenSleep(cfg.listenDelay * stdGap, ls);
       if (ls.stopRequested) break;
@@ -2491,7 +2489,7 @@ async function startListen() {
         // and the first dit lands at full volume. Net timing is unchanged.
         for (let r = 0; r < cfg.listenRepeat; r++) {
           if (ls.stopRequested) break;
-          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, r === 0 ? 0.5 : 0.2);
+          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone);
           if (ls.stopRequested) break;
           if (r < cfg.listenRepeat - 1) {
             await listenSleep(cfg.listenDelay * stdGap, ls);
