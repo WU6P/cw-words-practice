@@ -2397,7 +2397,10 @@ async function startListen() {
   await unlockAudio();
   primeAudio(0.2);              // belt-and-suspenders: warm the output stack before the first beep/word
   startKeepAlive();
-  if (state.cfg.listenVoice) startSpeechHeartbeat();
+  // No heartbeat in Listen mode — speakWord() runs every word cycle and keeps
+  // TTS permission warm on its own. The heartbeat's speak() calls shift iOS
+  // audio focus to TTS and duck the HTMLAudio Morse element, causing volume
+  // instability even when the phone is unlocked and the app is in foreground.
   requestWakeLock();
   const ls = state.listenState;
   ls.active = true;
@@ -2459,11 +2462,11 @@ async function startListen() {
       if (ls.stopRequested) break;
       // Resume AudioContext in case iOS suspended it during speech.
       try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
-      // Macos audio stack is briefly attenuated after speechSynthesis returns;
-      // a silent prime through the master gain absorbs the recovery dip so the
-      // next morse repeat starts at full amplitude.
+      // After speech, iOS holds TTS audio focus for ~100-300 ms. Give it time
+      // to release before the next HTMLAudio Morse blob, so the repeat doesn't
+      // start ducked. The WebAudio prime absorbs macOS cold-start attenuation.
       primeAudio(0.15);
-      await listenSleep(Math.max(stdGap, 1000), ls);
+      await listenSleep(Math.max(stdGap, 1000) + 250, ls);
       if (ls.stopRequested) break;
       for (let r = 0; r < cfg.listenRepeat; r++) {
         if (ls.stopRequested) break;
