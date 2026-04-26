@@ -205,7 +205,7 @@ let _silentAudio = null;
 function ensureSilentAudio() {
   if (_silentAudio) return _silentAudio;
   const sr = 8000;
-  const n = Math.floor(sr * (_isIOS ? 2 : 0.1));
+  const n = Math.floor(sr * (_isIOS ? 30 : 0.1));
   const buf = new ArrayBuffer(44 + n * 2);
   const v = new DataView(buf);
   const wr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
@@ -392,7 +392,9 @@ function playListenBeepBlob(charWpm, frequency) {
   // blob with leading silence so warm-up happens before the tone, a tone of at
   // least 80 ms for presence at any WPM, and trailing silence so the 'ended'
   // event has cushion and doesn't clip the tone tail.
-  const leadSec = 0.20;
+  // 0.50 s on iOS: absorbs post-speech TTS-focus release and any _silentAudio
+  // loop-boundary focus jitter that might arrive as the beep starts playing.
+  const leadSec = _isIOS ? 0.50 : 0.20;
   const toneSec = Math.max(dit, 0.08);
   const tailSec = 0.10;
   const totalSec = leadSec + toneSec + tailSec;
@@ -2337,6 +2339,16 @@ async function unlockAudio() {
   // Warm the audio output stack so the first real playback starts at full
   // amplitude on its very first sample (kills the cold-start fade on macOS).
   primeAudio(0.2);
+  // Warm _morseAudio (the single reused HTMLAudioElement for all iOS blobs)
+  // with a 1.5 s silent blob. unlockAudio() already warms the AudioContext and
+  // _silentAudio, but _morseAudio stays cold until its first real play(). iOS
+  // performs a ~100-300 ms audio-session ramp on the first play() of any
+  // HTMLAudioElement; doing it here with silence means the first real beep and
+  // Morse word start into a fully ramped session at full amplitude (word-1 duck).
+  if (_isIOS) {
+    const _warmSr = 22050;
+    await _playPcmBlob(new Float32Array(Math.floor(_warmSr * 1.5)), _warmSr, 1.5);
+  }
 }
 
 function playTestR() {
@@ -2455,7 +2467,9 @@ async function startListen() {
       // Voice ON: standard gap, first morse, configurable gap before voice, voice reveal, then repeats
       await listenSleep(stdGap, ls);
       if (ls.stopRequested) break;
-      await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
+      // 0.50 s lead on iOS: gives the audio session time to stabilise after the
+      // preceding beep+gap, and covers any residual _silentAudio loop-boundary jitter.
+      await playMorseFn(word, cfg.wpm, fwpm, state.currentTone, _isIOS ? 0.50 : 0.20);
       if (ls.stopRequested) break;
       await listenSleep(cfg.listenDelay * stdGap, ls);
       if (ls.stopRequested) break;
