@@ -369,16 +369,6 @@ function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency, leadSec = 0.
   const twoPiF = 2 * Math.PI * frequency;
   const amp = (state.cfg.cwVolume ?? 75) / 100;
 
-  // Fill the leading silence with a 1% amplitude tone. iOS treats all-zero
-  // PCM as "no media" and won't start its post-TTS audio session ramp until
-  // the first real dit. A faint but non-trivial tone forces session activation
-  // at play() so the ramp runs during the silence, not over the first dit.
-  if (_isIOS) {
-    const leadSamples = Math.round(leadSec * sr);
-    const twoPiFLead = 2 * Math.PI * frequency;
-    for (let i = 0; i < leadSamples; i++) data[i] = 0.01 * Math.sin(twoPiFLead * i / sr);
-  }
-
   for (const [symStart, dur] of syms) {
     const ramp = Math.min(0.006, dur * 0.15);
     const s0 = Math.round(symStart * sr);
@@ -2487,7 +2477,7 @@ async function startListen() {
         // and the first dit lands at full volume. Net timing is unchanged.
         for (let r = 0; r < cfg.listenRepeat; r++) {
           if (ls.stopRequested) break;
-          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, r === 0 ? 1.2 : 0.2);
+          await playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, r === 0 ? 1.75 : 0.2);
           if (ls.stopRequested) break;
           if (r < cfg.listenRepeat - 1) {
             await listenSleep(cfg.listenDelay * stdGap, ls);
