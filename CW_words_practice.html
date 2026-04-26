@@ -2466,7 +2466,12 @@ async function startListen() {
       // to release before the next HTMLAudio Morse blob, so the repeat doesn't
       // start ducked. The WebAudio prime absorbs macOS cold-start attenuation.
       primeAudio(0.15);
+      // 1250ms cushion lets iOS release TTS audio focus; extra 500ms before
+      // the first repeat gives the HTMLAudio session time to fully recover so
+      // the first symbol of the repeat isn't ducked.
       await listenSleep(Math.max(stdGap, 1000) + 250, ls);
+      if (ls.stopRequested) break;
+      await listenSleep(500, ls);
       if (ls.stopRequested) break;
       for (let r = 0; r < cfg.listenRepeat; r++) {
         if (ls.stopRequested) break;
@@ -2477,11 +2482,6 @@ async function startListen() {
           if (ls.stopRequested) break;
         }
       }
-      // Extra 500 ms after the voice word so iOS fully releases TTS audio
-      // focus before the next word's Morse starts (prevents first-symbol
-      // volume dip on the following word).
-      await listenSleep(500, ls);
-      if (ls.stopRequested) break;
     } else {
       // Voice OFF: standard gap, first morse, then listenRepeat additional plays with configurable gap between
       await listenSleep(stdGap, ls);
