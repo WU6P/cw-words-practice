@@ -394,6 +394,21 @@ function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency, leadSec = _i
   return _playPcmBlob(data, sr, tSec, useB);
 }
 
+// Kill element A: clear its src so iOS fully deregisters it from the audio
+// session. Called after TTS ends so A's duck-tainted session doesn't block
+// B from starting at full volume. A's 0.5 s blob lead absorbs the cold-ramp
+// on the next word's beep/pre-voice Morse.
+function _killMorseAudioA() {
+  if (!_morseAudio) return;
+  try { _morseAudio.pause(); } catch(e) {}
+  try { _morseAudio.src = ''; } catch(e) {}
+  try { _morseAudio.load(); } catch(e) {}
+  if (_lastMorseUrl) {
+    try { URL.revokeObjectURL(_lastMorseUrl); } catch(e) {}
+    _lastMorseUrl = null;
+  }
+}
+
 function playListenBeepBlob(charWpm, frequency) {
   const sr = 22050;
   const dit = 1.2 / charWpm;
@@ -2510,20 +2525,25 @@ async function startListen() {
       await speakWord(word);
       if (ls.stopRequested) break;
       try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch(e) {}
-      try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
-      primeAudio(0.15);
+      if (_isIOS) {
+        // Kill element A so iOS fully deregisters its duck-tainted audio session.
+        // All post-voice repeats run on element B, which was idle during TTS and
+        // starts into a clean session. A's 0.5 s lead silence covers its cold-ramp
+        // on the next word's beep / pre-voice Morse.
+        _killMorseAudioA();
+      } else {
+        try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
+        primeAudio(0.15);
+      }
       if (cfg.listenRepeat > 0) {
-        // First post-voice repeat: use element B on iOS — B was idle during TTS so
-        // iOS never ducked it, unlike element A which was active. B starts at full
-        // volume immediately without the 1-2 s arbitration delay.
-        await (_isIOS
-          ? playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, 0.5, true)
-          : playMorseFn(word, cfg.wpm, fwpm, state.currentTone));
-        if (ls.stopRequested) break;
-        for (let r = 1; r < cfg.listenRepeat; r++) {
-          await listenSleep(cfg.listenDelay * stdGap, ls);
-          if (ls.stopRequested) break;
-          await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
+        for (let r = 0; r < cfg.listenRepeat; r++) {
+          if (r > 0) {
+            await listenSleep(cfg.listenDelay * stdGap, ls);
+            if (ls.stopRequested) break;
+          }
+          await (_isIOS
+            ? playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, 0.5, true)
+            : playMorseFn(word, cfg.wpm, fwpm, state.currentTone));
           if (ls.stopRequested) break;
         }
       }
