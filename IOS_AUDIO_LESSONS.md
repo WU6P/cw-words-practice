@@ -1,6 +1,20 @@
 # iOS / Browser Audio Lessons — CW Words Practice
 
-Session date: 2026-04-25
+Sessions: 2026-04-25 / 2026-04-26
+
+---
+
+## Quick-Reference Summary
+
+| Problem | Root Cause | Fix |
+|---|---|---|
+| Morse silent on lock screen | WebAudio (AudioContext) is hard-suspended by iOS on page-hide | Pre-render Morse to WAV blob; play via HTMLAudioElement instead |
+| Silent loop doesn't keep session alive | All-zero PCM is detected as "no media" and tears down the session | Use ±1 LSB alternating samples (8 kHz, 30 s loop) |
+| Long non-zero loop ducks macOS TTS | Safari on Mac treats MediaSession+non-zero loop as a media app and ducks speechSynthesis | Gate both the 30 s loop and MediaSession behind `_isIOS` |
+| Morse dies after 2–3 words | iOS Safari caps ~6 HTMLMediaElements per tab; new Audio() per word exhausts the pool | Reuse a single `_morseAudio` element; swap `src` + call `load()` per word |
+| Morse plays twice (double trigger) | `canplaythrough` + 800 ms fallback both call `start()` | Guard `start()` with `started` + `done` booleans; clear both timers in `finish()` |
+| Mid-word volume dip on lock screen | Speech heartbeat tick calls `speak()` while Morse is playing, shifting audio focus | Skip heartbeat tick when `!_morseAudio.paused && !_morseAudio.ended` |
+| Low/unstable volume on words 1–2 | Cold `_morseAudio` ramp (~100–300 ms); post-TTS focus lingering; 2 s loop boundary | Warm `_morseAudio` in `unlockAudio()`; bump `leadSec` to 0.5 s; extend loop to 30 s |
 
 ---
 
@@ -250,6 +264,24 @@ activity makes Cause 1 and Cause 3 sub-threshold.
   of ±1 LSB PCM. At typical per-word durations (max ~10 s), the loop boundary
   falls in an inter-word gap or is skipped entirely, eliminating the mid-word
   focus arbitration trigger.
+
+---
+
+### 8. Parallel-blob trick causes post-TTS ducking (persistent low volume ~1–2 s after voice)
+
+**Symptom:** First Morse repeat after voice reveal is low volume for ~1–2 s then returns to normal. Happens in Listen mode with Voice ON, screen on or off.
+
+**Root cause:** The "parallel blob" approach (issue #7 Fix) started `_morseAudio.play()` *during* TTS with baked-in leading silence so the first tone would begin right as TTS ended. **But iOS ducks any HTMLAudio element that is `play()`-ing while TTS is active.** Even though the blob is silent during TTS, the element is ducked immediately. iOS then takes ~1–2 s to restore full volume after TTS deactivates — that window is exactly the symptom. The `estimateTtsSec` heuristic made it worse: if TTS ends early, the element plays silence in a ducked state; if TTS ends late, tones overlap TTS and are guaranteed ducked.
+
+**Fix: Two-element ping-pong**
+
+Add `_morseAudioB` (element B) alongside the existing `_morseAudio` (element A). Element A handles the pre-voice Morse and all subsequent repeats. Element B — which was **idle** during TTS and thus never entered into iOS's ducking arbitration — handles the **first post-voice repeat only**. B starts at full volume immediately.
+
+- `_ensureMorseAudio(useB)`, `_playPcmBlob(samples, sr, totalSec, useB)`, `playMorseAudioBlob(..., leadSec, useB)` — all accept `useB` flag
+- Both A and B are warmed in `unlockAudio()` in parallel (1.5 s silent blobs)
+- Speech heartbeat guard checks both elements: `!_morseAudio.paused && !_morseAudio.ended` AND `!_morseAudioB.paused && !_morseAudioB.ended`
+- Listen loop: remove the `firstRepeatP` parallel-blob code entirely; after `speakWord`, call `playMorseAudioBlob(..., 0.5, true)` for the first repeat on iOS; subsequent repeats use normal `playMorseFn` (element A)
+- Non-iOS path unchanged (no parallel blobs ever used there)
 
 ---
 

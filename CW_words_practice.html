@@ -278,8 +278,18 @@ function _encodeWavBlob(samples, sr) {
 // quickly exhausts the pool and silent-fails (symptoms: morse cuts short on
 // word 2, gone entirely by word 3, voice unaffected).
 let _morseAudio = null;
+let _morseAudioB = null;
 let _lastMorseUrl = null;
-function _ensureMorseAudio() {
+let _lastMorseUrlB = null;
+function _ensureMorseAudio(useB = false) {
+  if (useB) {
+    if (_morseAudioB) return _morseAudioB;
+    const a = new Audio();
+    a.preload = 'auto'; a.playsInline = true;
+    a.setAttribute('playsinline', '');
+    _morseAudioB = a;
+    return a;
+  }
   if (_morseAudio) return _morseAudio;
   const a = new Audio();
   a.preload = 'auto';
@@ -289,12 +299,12 @@ function _ensureMorseAudio() {
   return a;
 }
 
-function _playPcmBlob(samples, sr, totalSec) {
+function _playPcmBlob(samples, sr, totalSec, useB = false) {
   return new Promise(resolve => {
     const url = URL.createObjectURL(_encodeWavBlob(samples, sr));
-    const a = _ensureMorseAudio();
-    const prevUrl = _lastMorseUrl;
-    _lastMorseUrl = url;
+    const a = _ensureMorseAudio(useB);
+    const prevUrl = useB ? _lastMorseUrlB : _lastMorseUrl;
+    if (useB) _lastMorseUrlB = url; else _lastMorseUrl = url;
     let done = false;
     let started = false;
     let startTimer = null;
@@ -335,7 +345,7 @@ function _playPcmBlob(samples, sr, totalSec) {
   });
 }
 
-function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency, leadSec = _isIOS ? 0.5 : 0.2) {
+function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency, leadSec = _isIOS ? 0.5 : 0.2, useB = false) {
   const sr = 22050;
   const dit = 1.2 / charWpm;
   const charUnitsTime = 31 * dit;
@@ -381,7 +391,7 @@ function playMorseAudioBlob(text, charWpm, effectiveWpm, frequency, leadSec = _i
     }
   }
 
-  return _playPcmBlob(data, sr, tSec);
+  return _playPcmBlob(data, sr, tSec, useB);
 }
 
 function playListenBeepBlob(charWpm, frequency) {
@@ -480,7 +490,8 @@ function startSpeechHeartbeat() {
     // ducks the HTMLAudio Morse element, producing audible volume dips inside
     // a single word. The next tick (or the real speakWord() after Morse ends)
     // re-arms the engine before iOS revokes its permission.
-    if (_morseAudio && !_morseAudio.paused && !_morseAudio.ended) return;
+    if (_morseAudio  && !_morseAudio.paused  && !_morseAudio.ended)  return;
+    if (_morseAudioB && !_morseAudioB.paused && !_morseAudioB.ended) return;
     try {
       const u = new SpeechSynthesisUtterance('a');
       u.volume = 0;
@@ -1247,7 +1258,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '2.0');
+  infoRow('Version', '2.1');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
@@ -2359,7 +2370,12 @@ async function unlockAudio() {
   // Morse word start into a fully ramped session at full amplitude (word-1 duck).
   if (_isIOS) {
     const _warmSr = 22050;
-    await _playPcmBlob(new Float32Array(Math.floor(_warmSr * 1.5)), _warmSr, 1.5);
+    const _warmBuf = new Float32Array(Math.floor(_warmSr * 1.5));
+    // Warm both A and B in parallel so neither is cold when the listen loop starts.
+    await Promise.all([
+      _playPcmBlob(_warmBuf, _warmSr, 1.5, false),
+      _playPcmBlob(_warmBuf, _warmSr, 1.5, true),
+    ]);
   }
 }
 
@@ -2491,22 +2507,18 @@ async function startListen() {
       if (ls.stopRequested) break;
       await listenSleep(cfg.listenDelay * stdGap, ls);
       if (ls.stopRequested) break;
-      // Kick off the first repeat blob NOW, in parallel with speech.
-      // The blob bakes in silence = estimated TTS duration + 0.5 s buffer, so
-      // its Morse tones begin after TTS ends and the duck has cleared — no
-      // low-volume ramp-up on the first dit regardless of how long the duck holds.
-      let firstRepeatP = null;
-      if (cfg.listenRepeat > 0) {
-        const estSec = estimateTtsSec(word, cfg.voiceRate ?? 1);
-        firstRepeatP = playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, estSec + 0.5);
-      }
       await speakWord(word);
       if (ls.stopRequested) break;
       try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch(e) {}
       try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
       primeAudio(0.15);
-      if (firstRepeatP) {
-        await firstRepeatP;
+      if (cfg.listenRepeat > 0) {
+        // First post-voice repeat: use element B on iOS — B was idle during TTS so
+        // iOS never ducked it, unlike element A which was active. B starts at full
+        // volume immediately without the 1-2 s arbitration delay.
+        await (_isIOS
+          ? playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, 0.5, true)
+          : playMorseFn(word, cfg.wpm, fwpm, state.currentTone));
         if (ls.stopRequested) break;
         for (let r = 1; r < cfg.listenRepeat; r++) {
           await listenSleep(cfg.listenDelay * stdGap, ls);
