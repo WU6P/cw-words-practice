@@ -2248,6 +2248,12 @@ function renderPractice(t) {
         color: mark === '✓' ? t.correct : t.wrong,
       }}, mark));
     }
+    btn.appendChild(el('span', { 'aria-hidden':'true', style:{
+      position:'absolute', bottom:'3px', right:'6px',
+      fontSize:'10px', fontWeight:'600', letterSpacing:'0', lineHeight:'1',
+      color: answered ? (ch === q.correct ? t.correct : ch === chosen ? t.wrong : t.border) : t.border,
+      opacity: (!canAnswer && !answered) ? '0.4' : '1',
+    }}, String(idx + 1)));
     if (canAnswer) {
       btn.addEventListener('click', () => handleAnswer(ch));
     } else if (answered) {
@@ -2908,6 +2914,11 @@ function transitionToPlaying() {
           fontFamily:t.mono, letterSpacing:'2px', textAlign:'center', transition:'all 0.15s',
           opacity:'0.4', cursor:'default',
         }}, ch.toUpperCase());
+      btn.appendChild(el('span', { 'aria-hidden':'true', style:{
+        position:'absolute', bottom:'3px', right:'6px',
+        fontSize:'10px', fontWeight:'600', letterSpacing:'0', lineHeight:'1',
+        color: t.border, opacity:'0.4',
+      }}, String(idx + 1)));
       gridEl.appendChild(btn);
     });
   }
