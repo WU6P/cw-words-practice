@@ -725,9 +725,9 @@ const state = {
     listenDelay:    _saved.listenDelay    ?? 3,
     listenVoice:      _saved.listenVoice      ?? true,
     voiceGender:      _saved.voiceGender      ?? 'female',
-    voiceRate:        _saved.voiceRate        ?? 1.25,
+    voiceRate:        _saved.voiceRate        ?? 1.0,
     voiceVolume:      _saved.voiceVolume      ?? 75,
-    cwVolume:         _saved.cwVolume         ?? 75,
+    cwVolume:         100,
     allowCloudVoice:  _saved.allowCloudVoice  ?? false,
     saveMissedWords:  _saved.saveMissedWords  ?? true,
     screenReaderMode: _saved.screenReaderMode ?? false,
@@ -1191,7 +1191,7 @@ function renderManualContent(t) {
 
   S('Settings — Voice Reveal');
   B('Gender', 'Choose Woman or Man voice. The app selects the best available voice in that category from your device\'s speech synthesis engine.');
-  B('Voice Speed', 'Playback rate for the spoken word (0.5× slow to 2× fast). Default 1×.');
+  B('Voice Speed', 'Playback rate for the spoken word (0.7× slow to 1.5× fast, in 0.1× steps). Default 1×.');
   B('Allow Cloud Voices', 'On iOS and macOS, enabling this allows the system to use higher-quality cloud-based voices (requires internet). When off, only locally stored voices are used — works offline and is faster.');
 
   S('Settings — Session (Practice)');
@@ -1201,6 +1201,12 @@ function renderManualContent(t) {
   P('When "Save Missed Words" is enabled (on by default), every word you answer incorrectly is recorded with a miss counter. The counter resets each time (to 2) you miss the same word again, and decrements by one each time you get it right.');
   P('The Missed Words word pool draws from your personal missed list. When a word\'s miss count reaches zero it is removed from the list.');
   P('Use "Clear Saved Words" in Settings to wipe the missed list and start fresh.');
+
+  S('Settings — Screen Reader Mode');
+  P('Screen Reader Mode is designed for blind or low-vision users who rely on a screen reader or prefer full audio feedback.');
+  B('What it does', 'When enabled, the app speaks the four multiple-choice options aloud after each Morse play, announces your selection result ("Correct!" or "Wrong — the word was …"), and reads your running score. Voice Reveal is forced on so every word is spoken.');
+  B('How to use', 'Turn on Screen Reader Mode in Settings. Use the on-screen buttons or an external switch to select an answer — no visual scanning required. Pair with your device\'s system screen reader (VoiceOver on iOS/macOS, TalkBack on Android) for full navigation.');
+  B('Voice Speed', 'Adjust Voice Speed under Settings → Voice Reveal to slow down or speed up all spoken feedback, including choice announcements.');
 
   S('Settings — Theme');
   B('Shack', 'Dark amber theme inspired by a classic radio shack.');
@@ -1289,7 +1295,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '2.2');
+  infoRow('Version', '2.3');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
@@ -1683,30 +1689,14 @@ function renderSettingsModal(t) {
   tvRow.appendChild(tvToggle);
   sec5.appendChild(tvRow);
 
-  // CW Volume slider
+  // CW Volume — fixed at 100%
   sec5.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'14px 0' }}));
-  const cwVolRow = el('div', {});
-  const cwVolHdr = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'8px' }});
+  const cwVolRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
   const cwVolLeft = el('div', {});
   cwVolLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'13px', color:t.text }}, 'CW Volume'));
   cwVolLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Morse code tone loudness'));
-  cwVolHdr.appendChild(cwVolLeft);
-  const cwVolValSpan = el('span', { style:{ fontFamily:t.mono, fontSize:'15px', fontWeight:'600', color:t.accent, minWidth:'42px', textAlign:'right' }}, `${cfg.cwVolume}%`);
-  cwVolHdr.appendChild(cwVolValSpan);
-  cwVolRow.appendChild(cwVolHdr);
-  const cwVolSliderRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
-  const cwVolMinus = el('button', { 'aria-label':'Decrease CW volume', style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '−');
-  const cwVolSlider = el('input', { type:'range', min:'1', max:'100', value:String(cfg.cwVolume), 'aria-label':'CW Volume', style:{ flex:'1', accentColor:t.accent }});
-  const cwVolPlus  = el('button', { 'aria-label':'Increase CW volume', style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '+');
-  const updateCwVol = v => { cfg.cwVolume = Math.min(100, Math.max(1, v)); cwVolSlider.value = cfg.cwVolume; cwVolValSpan.textContent = `${cfg.cwVolume}%`; };
-  cwVolSlider.addEventListener('input',  () => updateCwVol(+cwVolSlider.value));
-  cwVolSlider.addEventListener('change', () => saveTweaks());
-  cwVolMinus.addEventListener('click', () => { updateCwVol(cfg.cwVolume - 5); saveTweaks(); });
-  cwVolPlus.addEventListener('click',  () => { updateCwVol(cfg.cwVolume + 5); saveTweaks(); });
-  cwVolSliderRow.appendChild(cwVolMinus);
-  cwVolSliderRow.appendChild(cwVolSlider);
-  cwVolSliderRow.appendChild(cwVolPlus);
-  cwVolRow.appendChild(cwVolSliderRow);
+  cwVolRow.appendChild(cwVolLeft);
+  cwVolRow.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'15px', fontWeight:'600', color:t.accent }}, '100%'));
   sec5.appendChild(cwVolRow);
 
   modal.appendChild(sec5);
@@ -1905,8 +1895,10 @@ function renderSettingsModal(t) {
         borderRadius:'6px', padding:'5px 8px', fontSize:'13px', fontFamily:t.mono, cursor:'pointer',
       },
     });
-    [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].forEach(r => {
-      const opt = el('option', { value: String(r) }, r === 1 ? '1× (normal)' : r + '×');
+    const validRates = [0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5];
+    if (!validRates.includes(cfg.voiceRate)) cfg.voiceRate = 1.0;
+    validRates.forEach(r => {
+      const opt = el('option', { value: String(r) }, r === 1.0 ? '1.0× (normal)' : r.toFixed(1) + '×');
       if (cfg.voiceRate === r) opt.selected = true;
       speedSel.appendChild(opt);
     });
