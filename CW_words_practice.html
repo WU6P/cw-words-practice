@@ -2172,7 +2172,7 @@ function renderListen(t) {
       color:t.textMuted, fontSize:'12px', fontWeight:'600', letterSpacing:'1px',
       display:'block', margin:'18px auto 0',
     }}, '⚙ Characterize');
-    charBtn.addEventListener('click', () => { if (listenState.active) stopListen(); state.charOpen = true; render(); });
+    charBtn.addEventListener('click', () => { if (state.listenState.active) stopListen(); state.charOpen = true; render(); });
     wrap.appendChild(charBtn);
   }
 
