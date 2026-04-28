@@ -409,6 +409,16 @@ function _killMorseAudioA() {
     _lastMorseUrl = null;
   }
 }
+function _killMorseAudioB() {
+  if (!_morseAudioB) return;
+  try { _morseAudioB.pause(); } catch(e) {}
+  try { _morseAudioB.src = ''; } catch(e) {}
+  try { _morseAudioB.load(); } catch(e) {}
+  if (_lastMorseUrlB) {
+    try { URL.revokeObjectURL(_lastMorseUrlB); } catch(e) {}
+    _lastMorseUrlB = null;
+  }
+}
 
 // Duck-compensation volume ramp for element B.
 // iOS duck profile (observed): flat at ~25% for ~1500 ms after TTS ends,
@@ -433,7 +443,6 @@ function _startMorseVolRamp() {
     } else {
       const t = Math.min(1.0, (elapsed - flatMs) / rampMs);
       _morseAudioB.volume = Math.max(dump, 1.0 - (1.0 - dump) * t);
-      if (t >= 1.0) { clearInterval(_morseVolRampTimer); _morseVolRampTimer = null; }
     }
   }, 16);
 }
@@ -480,6 +489,7 @@ async function runCharTest() {
     _startMorseVolRamp();
     await _playDitsBlob(4.0, tweaks.frequency, cfg.wpm);
   } catch(e) {}
+  _stopMorseVolRamp();
   _charPlaying = false;
   try { render(); } catch(e) {}
 }
@@ -2762,6 +2772,9 @@ function stopListen() {
   stopKeepAlive();
   stopSpeechHeartbeat();
   _stopMorseVolRamp();
+  try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch(e) {}
+  _killMorseAudioA();
+  _killMorseAudioB();
   releaseWakeLock();
   setupMediaSession(false);
   try { _silentAudio && _silentAudio.pause(); } catch (e) {}
