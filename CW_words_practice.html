@@ -730,6 +730,7 @@ const state = {
     cwVolume:         _saved.cwVolume         ?? 75,
     allowCloudVoice:  _saved.allowCloudVoice  ?? false,
     saveMissedWords:  _saved.saveMissedWords  ?? true,
+    screenReaderMode: _saved.screenReaderMode ?? false,
   },
   settingsOpen: false,
   helpOpen: null,          // null | 'manual' | 'contact' | 'about'
@@ -751,6 +752,10 @@ const state = {
 function saveTweaks() {
   localStorage.setItem('cw_tweaks', JSON.stringify({ ...state.tweaks, ...state.cfg }));
 }
+
+// SR mode requires Voice Reveal — keep them in sync at boot in case storage
+// was edited between sessions or imported from another device.
+if (state.cfg.screenReaderMode) state.cfg.listenVoice = true;
 
 // ── MISSED WORDS STORE ────────────────────────────────────────────────────────
 const MISSED_KEY = 'cw_missed_words';
@@ -817,6 +822,41 @@ function el(tag, attrs, ...children) {
 }
 function css(obj) {  // convert style object to inline string (unused but handy)
   return Object.entries(obj).map(([k,v]) => `${k.replace(/([A-Z])/g,'-$1').toLowerCase()}:${v}`).join(';');
+}
+
+// Screen-reader-only live region. Pure ARIA announcement — invisible to sighted
+// users. Used for transient feedback (wrong-answer detail, score updates) where
+// adding a visual element would clutter the layout.
+function announce(msg) {
+  let r = document.getElementById('_sr-announcer');
+  if (!r) {
+    r = document.createElement('div');
+    r.id = '_sr-announcer';
+    r.setAttribute('aria-live', 'polite');
+    r.setAttribute('aria-atomic', 'true');
+    r.setAttribute('role', 'status');
+    Object.assign(r.style, { position:'absolute', left:'-9999px', width:'1px', height:'1px', overflow:'hidden', clip:'rect(0 0 0 0)' });
+    document.body.appendChild(r);
+  }
+  // Empty + reset trick so identical consecutive messages still re-announce
+  r.textContent = '';
+  setTimeout(() => { r.textContent = msg; }, 30);
+}
+
+// In-app TTS for Screen Reader Mode users. Wraps speakWord() so it only fires
+// when SR mode is on, and uses a separate utterance flow that won't conflict
+// with the Voice Reveal pipeline (which speaks the actual practice word).
+function announceTTS(msg) {
+  if (!state.cfg.screenReaderMode) return;
+  if (!window.speechSynthesis) return;
+  try {
+    const utt = new SpeechSynthesisUtterance(msg);
+    utt.rate = state.cfg.voiceRate ?? 1;
+    utt.volume = (state.cfg.voiceVolume ?? 75) / 100;
+    const v = getPreferredVoice();
+    if (v) utt.voice = v;
+    window.speechSynthesis.speak(utt);
+  } catch (e) {}
 }
 function fmtHMS(s) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
@@ -1249,7 +1289,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '2.1');
+  infoRow('Version', '2.2');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
@@ -1288,7 +1328,7 @@ function renderHeader(t) {
     backBtn.addEventListener('click', () => { goSettings(); });
     left.appendChild(backBtn);
   }
-  left.appendChild(el('span', { style:{
+  left.appendChild(el('span', { 'aria-hidden':'true', style:{
     fontFamily:t.mono, fontSize:'13px', fontWeight:'700', letterSpacing:'2px',
     background:t.accent, color:t.accentText, borderRadius:'5px', padding:'2px 7px',
   }}, 'CW Words'));
@@ -1299,21 +1339,30 @@ function renderHeader(t) {
 
   const right = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
   if (progress > 0 && screen === 'practice' && state.cfg.listenMode === false) {
-    const progressWrap = el('div', { style:{ display:'flex', alignItems:'center', gap:'6px' }});
-    const bar = el('div', { style:{ width:'64px', height:'3px', borderRadius:'1px', background:t.border, position:'relative' }});
+    const progressWrap = el('div', {
+      role:'progressbar',
+      'aria-valuemin':'0', 'aria-valuemax': String(cfg.sessionSize), 'aria-valuenow': String(progress),
+      'aria-label': `Question ${progress} of ${cfg.sessionSize}`,
+      style:{ display:'flex', alignItems:'center', gap:'6px' }
+    });
+    const bar = el('div', { 'aria-hidden':'true', style:{ width:'64px', height:'3px', borderRadius:'1px', background:t.border, position:'relative' }});
     bar.appendChild(el('div', { style:{
       height:'100%', width:`${(progress / cfg.sessionSize) * 100}%`,
       background:t.accent, borderRadius:'1px', transition:'width 0.3s',
       boxShadow:`0 0 6px ${t.accent}cc, 0 0 12px ${t.accent}55`,
     }}));
     progressWrap.appendChild(bar);
-    progressWrap.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted }}, `${progress}/${cfg.sessionSize}`));
+    progressWrap.appendChild(el('span', { 'aria-hidden':'true', style:{ fontFamily:t.mono, fontSize:'11px', color:t.textMuted }}, `${progress}/${cfg.sessionSize}`));
     right.appendChild(progressWrap);
   }
   if (score.t > 0 && screen !== 'settings' && screen !== 'listen' && screen !== 'listenSummary') {
-    const scoreDiv = el('div', { style:{ textAlign:'right' }});
-    scoreDiv.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'16px', fontWeight:'700', color:t.text }}, `${score.c}/${score.t}`));
-    scoreDiv.appendChild(el('div', { style:{
+    const scoreDiv = el('div', {
+      role:'status', 'aria-live':'polite', 'aria-atomic':'true',
+      'aria-label': `Score: ${score.c} of ${score.t}, ${acc} percent`,
+      style:{ textAlign:'right' }
+    });
+    scoreDiv.appendChild(el('div', { 'aria-hidden':'true', style:{ fontFamily:t.mono, fontSize:'16px', fontWeight:'700', color:t.text }}, `${score.c}/${score.t}`));
+    scoreDiv.appendChild(el('div', { 'aria-hidden':'true', style:{
       fontSize:'11px',
       color: acc >= 80 ? t.correct : acc >= 60 ? t.accent : t.wrong,
     }}, `${acc}%`));
@@ -1322,13 +1371,13 @@ function renderHeader(t) {
 
   // Help dropdown
   const helpWrap = el('div', { style:{ position:'relative' }});
-  const helpBtn = el('button', { 'aria-haspopup':'menu', style:{
+  const helpBtn = el('button', { 'aria-haspopup':'menu', 'aria-expanded': state.helpDropdownOpen ? 'true' : 'false', 'aria-label':'Help menu', style:{
     background:'none', border:`1px solid ${t.border}`, color:t.textMuted,
     fontSize:'12px', padding:'5px 10px', borderRadius:'6px', fontWeight:'500',
     display:'flex', alignItems:'center', gap:'4px',
   }});
   helpBtn.appendChild(document.createTextNode('Help'));
-  helpBtn.appendChild(el('span', { style:{ fontSize:'9px', opacity:'0.7' }}, '▾'));
+  helpBtn.appendChild(el('span', { 'aria-hidden':'true', style:{ fontSize:'9px', opacity:'0.7' }}, '▾'));
   helpBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     state.helpDropdownOpen = !state.helpDropdownOpen;
@@ -1341,18 +1390,20 @@ function renderHeader(t) {
     }});
     ddOverlay.addEventListener('click', () => { state.helpDropdownOpen = false; render(); });
     document.body.appendChild(ddOverlay);
-    const dd = el('div', { style:{
+    const dd = el('div', { role:'menu', style:{
       position:'absolute', top:'calc(100% + 6px)', right:'0',
       background:t.bgCard, border:`1px solid ${t.border}`, borderRadius:'8px',
       padding:'4px', zIndex:30, minWidth:'130px',
       boxShadow:'0 8px 24px #0005',
     }});
-    [['manual','📖 Manual'],['offline','📴 Offline Use'],['contact','✉ Contact'],['about','ℹ About']].forEach(([key, label]) => {
-      const item = el('button', { style:{
+    [['manual','📖','Manual'],['offline','📴','Offline Use'],['contact','✉','Contact'],['about','ℹ','About']].forEach(([key, emoji, label]) => {
+      const item = el('button', { 'aria-label': label, style:{
         display:'block', width:'100%', textAlign:'left', padding:'9px 14px',
         background:'none', border:'none', color:t.text, fontSize:'13px',
         borderRadius:'6px', fontWeight:'500',
-      }}, label);
+      }});
+      item.appendChild(el('span', { 'aria-hidden':'true' }, emoji + ' '));
+      item.appendChild(document.createTextNode(label));
       item.addEventListener('mouseenter', () => item.style.background = t.border);
       item.addEventListener('mouseleave', () => item.style.background = 'none');
       item.addEventListener('click', () => {
@@ -1386,8 +1437,8 @@ function renderSettings(t) {
   // Word List
   const lblStyle = { display:'block', fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:'10px' };
   const sec1 = el('div', { style:{ marginBottom:'28px' }});
-  sec1.appendChild(el('label', { style:lblStyle }, 'Session'));
-  const listSelect = el('select', { style:{
+  sec1.appendChild(el('label', { htmlFor:'sessionSelect', style:lblStyle }, 'Session'));
+  const listSelect = el('select', { id:'sessionSelect', 'aria-label':'Word list', style:{
     width:'100%', padding:'14px 18px',
     border:`2px solid ${t.accent}`, borderRadius:'10px',
     background:t.bgCard, color:t.accent,
@@ -1419,6 +1470,7 @@ function renderSettings(t) {
     display:'flex', alignItems:'center', justifyContent:'center', flexShrink:'0', cursor:'pointer' };
   const wpmMinus = el('button', { 'aria-label':'Decrease WPM', style:btnStyle }, '−');
   const wpmSlider = el('input', { type:'range', min:'10', max:'75', step:'1', value:String(cfg.wpm),
+    'aria-label':'Character speed in words per minute',
     style:{ accentColor:t.accent, flex:'1' }});
   const wpmPlus = el('button', { 'aria-label':'Increase WPM', style:btnStyle }, '+');
   wpmSlider.style.setProperty('--thumb-color', t.accent);
@@ -1446,10 +1498,13 @@ function renderSettings(t) {
   // Mode selector: Practice / Listen
   const modeSec = el('div', { style:{ marginBottom:'16px' }});
   modeSec.appendChild(el('label', { style:{ display:'block', fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:'10px' }}, 'Mode'));
-  const modeRow = el('div', { style:{ display:'flex', gap:'8px' }});
+  const modeRow = el('div', { role:'radiogroup', 'aria-label':'Mode', style:{ display:'flex', gap:'8px' }});
   [[false, 'Practice', 'Test your decoding'], [true, 'Listen', 'Auto-play words']].forEach(([val, label, desc]) => {
     const sel = cfg.listenMode === val;
-    const btn = el('button', { style:{
+    const btn = el('button', {
+      role:'radio', 'aria-checked': String(sel),
+      'aria-label': `${label} mode — ${desc}`,
+      style:{
       flex:'1', padding:'12px 8px', border:`2px solid ${sel ? t.accent : t.border}`,
       borderRadius:'10px', background: sel ? t.accentDim : t.bgCard,
       color: sel ? t.accent : t.text,
@@ -1475,7 +1530,7 @@ function renderSettings(t) {
   voiceRevealLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, 'Voice Reveal'));
   voiceRevealLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Speak word aloud after first Morse play'));
   voiceRevealRow.appendChild(voiceRevealLeft);
-  voiceRevealRow.appendChild(renderToggle(t, cfg.listenVoice, () => { cfg.listenVoice = !cfg.listenVoice; saveTweaks(); render(); }));
+  voiceRevealRow.appendChild(renderToggle(t, cfg.listenVoice || cfg.screenReaderMode, () => { cfg.listenVoice = !cfg.listenVoice; saveTweaks(); render(); }, 'Voice Reveal', { disabled: cfg.screenReaderMode }));
   wrap.appendChild(voiceRevealRow);
 
   // Settings sub-window button
@@ -1540,6 +1595,23 @@ function renderSettingsModal(t) {
   hdr.appendChild(closeBtn);
   modal.appendChild(hdr);
 
+  // Screen Reader Mode — gates verbose TTS feedback for blind / low-vision users
+  const secSR = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
+  const srRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px' }});
+  const srLeft = el('div', {});
+  srLeft.appendChild(el('div', { style:{ fontSize:'13px', fontWeight:'700', color:t.text, marginBottom:'3px' }}, 'Screen Reader Mode'));
+  srLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted }}, 'Speaks choices, score, and feedback aloud. Forces Voice Reveal on.'));
+  srRow.appendChild(srLeft);
+  srRow.appendChild(renderToggle(t, cfg.screenReaderMode, () => {
+    cfg.screenReaderMode = !cfg.screenReaderMode;
+    if (cfg.screenReaderMode) cfg.listenVoice = true;  // force voice reveal on
+    saveTweaks();
+    render();
+    if (cfg.screenReaderMode) announceTTS('Screen reader mode on.');
+  }, 'Screen Reader Mode'));
+  secSR.appendChild(srRow);
+  modal.appendChild(secSR);
+
   // Tone — frequency + variation in one box
   const sec5 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
   sec5.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'10px' }}, 'Tone'));
@@ -1556,6 +1628,7 @@ function renderSettingsModal(t) {
   const freqRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
   const freqMinus = el('button', { 'aria-label':'Decrease frequency', style:freqBtnStyle }, '−');
   const freqSlider = el('input', { id:'freqSlider', type:'range', min:'300', max:'1000', step:'10', value:String(tweaks.frequency),
+    'aria-label':'Tone frequency in hertz',
     style:{ accentColor:t.accent, flex:'1' }});
   const freqPlus = el('button', { 'aria-label':'Increase frequency', style:freqBtnStyle }, '+');
   freqSlider.style.setProperty('--thumb-color', t.accent);
@@ -1622,9 +1695,9 @@ function renderSettingsModal(t) {
   cwVolHdr.appendChild(cwVolValSpan);
   cwVolRow.appendChild(cwVolHdr);
   const cwVolSliderRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
-  const cwVolMinus = el('button', { style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '−');
-  const cwVolSlider = el('input', { type:'range', min:'1', max:'100', value:String(cfg.cwVolume), style:{ flex:'1', accentColor:t.accent }});
-  const cwVolPlus  = el('button', { style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '+');
+  const cwVolMinus = el('button', { 'aria-label':'Decrease CW volume', style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '−');
+  const cwVolSlider = el('input', { type:'range', min:'1', max:'100', value:String(cfg.cwVolume), 'aria-label':'CW Volume', style:{ flex:'1', accentColor:t.accent }});
+  const cwVolPlus  = el('button', { 'aria-label':'Increase CW volume', style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '+');
   const updateCwVol = v => { cfg.cwVolume = Math.min(100, Math.max(1, v)); cwVolSlider.value = cfg.cwVolume; cwVolValSpan.textContent = `${cfg.cwVolume}%`; };
   cwVolSlider.addEventListener('input',  () => updateCwVol(+cwVolSlider.value));
   cwVolSlider.addEventListener('change', () => saveTweaks());
@@ -1641,10 +1714,13 @@ function renderSettingsModal(t) {
   // Mode selector (two-block, matches home page style) — item 6
   const secMode = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
   secMode.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'10px' }}, 'Mode'));
-  const modeRowM = el('div', { style:{ display:'flex', gap:'8px' }});
+  const modeRowM = el('div', { role:'radiogroup', 'aria-label':'Mode', style:{ display:'flex', gap:'8px' }});
   [[false, 'Practice', 'Test your decoding'], [true, 'Listen', 'Auto-play words']].forEach(([val, label, desc]) => {
     const sel = cfg.listenMode === val;
-    const btn = el('button', { style:{
+    const btn = el('button', {
+      role:'radio', 'aria-checked': String(sel),
+      'aria-label': `${label} mode — ${desc}`,
+      style:{
       flex:'1', padding:'12px 8px', border:`2px solid ${sel ? t.accent : t.border}`,
       borderRadius:'10px', background: sel ? t.accentDim : t.bgCard,
       color: sel ? t.accent : t.text,
@@ -1670,10 +1746,10 @@ function renderSettingsModal(t) {
     durLabel.appendChild(durValSpan);
     lnExtra.appendChild(durLabel);
     const durRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
-    const durMinus = el('button', { 'aria-label':'Less', style:stepBtnStyle }, '−');
+    const durMinus = el('button', { 'aria-label':'Decrease duration', style:stepBtnStyle }, '−');
     const durSlider = el('input', { type:'range', min:'0', max:'100', step:'1',
-      value:String(posFromDur(cfg.listenDuration)), style:{ accentColor:t.accent, flex:'1' }});
-    const durPlus = el('button', { 'aria-label':'More', style:stepBtnStyle }, '+');
+      value:String(posFromDur(cfg.listenDuration)), 'aria-label':'Listen duration', style:{ accentColor:t.accent, flex:'1' }});
+    const durPlus = el('button', { 'aria-label':'Increase duration', style:stepBtnStyle }, '+');
     function updateDur(pos) {
       const p = Math.max(0, Math.min(100, pos));
       cfg.listenDuration = durFromPos(p);
@@ -1695,10 +1771,10 @@ function renderSettingsModal(t) {
       lnExtra.appendChild(el('div', { style:{ height:'14px' }}));
       const row = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
       const lbl = el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, label);
-      const stepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px', width:'120px', flexShrink:'0', justifyContent:'flex-end' }});
-      const minus = el('button', { style:stepBtnStyle }, '−');
-      const val = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'32px', textAlign:'center' }}, String(cfg[key]));
-      const plus = el('button', { style:stepBtnStyle }, '+');
+      const stepper = el('div', { role:'group', 'aria-label': label, style:{ display:'flex', alignItems:'center', gap:'8px', width:'120px', flexShrink:'0', justifyContent:'flex-end' }});
+      const minus = el('button', { 'aria-label': `Decrease ${label.toLowerCase()}`, style:stepBtnStyle }, '−');
+      const val = el('span', { 'aria-live':'polite', 'aria-label': `${label}: ${cfg[key]}`, style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'32px', textAlign:'center' }}, String(cfg[key]));
+      const plus = el('button', { 'aria-label': `Increase ${label.toLowerCase()}`, style:stepBtnStyle }, '+');
       minus.addEventListener('click', () => { cfg[key] = Math.max(0, cfg[key] - 1); val.textContent = cfg[key]; saveTweaks(); });
       plus.addEventListener('click',  () => { cfg[key] = Math.min(10, cfg[key] + 1); val.textContent = cfg[key]; saveTweaks(); });
       stepper.appendChild(minus); stepper.appendChild(val); stepper.appendChild(plus);
@@ -1712,10 +1788,10 @@ function renderSettingsModal(t) {
     lnExtra.appendChild(el('div', { style:{ height:'10px' }}));
     const dlyRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
     const dlyLbl = el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, 'Word Gap');
-    const dlyStepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px', width:'120px', flexShrink:'0', justifyContent:'flex-end' }});
-    const dlyMinus = el('button', { style:stepBtnStyle }, '−');
-    const dlyVal = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'32px', textAlign:'center' }}, String(cfg.listenDelay));
-    const dlyPlus = el('button', { style:stepBtnStyle }, '+');
+    const dlyStepper = el('div', { role:'group', 'aria-label':'Word Gap', style:{ display:'flex', alignItems:'center', gap:'8px', width:'120px', flexShrink:'0', justifyContent:'flex-end' }});
+    const dlyMinus = el('button', { 'aria-label':'Decrease word gap', style:stepBtnStyle }, '−');
+    const dlyVal = el('span', { 'aria-live':'polite', 'aria-label': `Word Gap: ${cfg.listenDelay}`, style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'32px', textAlign:'center' }}, String(cfg.listenDelay));
+    const dlyPlus = el('button', { 'aria-label':'Increase word gap', style:stepBtnStyle }, '+');
     dlyMinus.addEventListener('click', () => { cfg.listenDelay = Math.max(1, cfg.listenDelay - 1); dlyVal.textContent = String(cfg.listenDelay); saveTweaks(); });
     dlyPlus.addEventListener('click',  () => { cfg.listenDelay = Math.min(20, cfg.listenDelay + 1); dlyVal.textContent = String(cfg.listenDelay); saveTweaks(); });
     dlyStepper.appendChild(dlyMinus); dlyStepper.appendChild(dlyVal); dlyStepper.appendChild(dlyPlus);
@@ -1727,10 +1803,13 @@ function renderSettingsModal(t) {
   if (!cfg.listenMode) {
     const prExtra = el('div', { style:{ marginTop:'16px', paddingTop:'16px', borderTop:`1px solid ${t.border}` }});
     prExtra.appendChild(el('label', { style:{ ...lblStyle, marginBottom:'8px' }}, 'Questions per Session'));
-    const sizeRow = el('div', { style:{ display:'flex', gap:'8px' }});
+    const sizeRow = el('div', { role:'radiogroup', 'aria-label':'Questions per Session', style:{ display:'flex', gap:'8px' }});
     [10, 20, 50, 100].forEach(n => {
       const sel = cfg.sessionSize === n;
-      const btn = el('button', { style:{
+      const btn = el('button', {
+        role:'radio', 'aria-checked': String(sel),
+        'aria-label': `${n} questions per session`,
+        style:{
         flex:'1', padding:'10px 4px', border:`2px solid ${sel ? t.accent : t.border}`,
         borderRadius:'8px', background: sel ? t.accentDim : t.bgCard,
         color: sel ? t.accent : t.text, fontSize:'14px',
@@ -1747,7 +1826,7 @@ function renderSettingsModal(t) {
   // Farnsworth
   const sec3 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
   const fwRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
-  fwRow.appendChild(renderToggle(t, cfg.farnsworth, () => { cfg.farnsworth = !cfg.farnsworth; saveTweaks(); render(); }));
+  fwRow.appendChild(renderToggle(t, cfg.farnsworth, () => { cfg.farnsworth = !cfg.farnsworth; saveTweaks(); render(); }, 'Farnsworth Timing'));
   const fwText = el('div', {});
   fwText.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px' }}, 'Farnsworth Timing'));
   fwText.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Characters at full speed, extra space between them'));
@@ -1761,6 +1840,7 @@ function renderSettingsModal(t) {
     fwLabel.appendChild(fwValSpan);
     fwExtra.appendChild(fwLabel);
     const fwSlider = el('input', { id:'fwSlider', type:'range', min:'5', max:String(cfg.wpm), step:'1', value:String(cfg.fwpm),
+      'aria-label':'Farnsworth spacing speed in words per minute',
       style:{ accentColor:t.accent }});
     fwSlider.style.setProperty('--thumb-color', t.accent);
     fwSlider.style.setProperty('--track-color', t.border);
@@ -1781,16 +1861,18 @@ function renderSettingsModal(t) {
   // Header row: title + on/off toggle (same as home screen Voice Reveal)
   const voiceHdrRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: cfg.listenVoice ? '14px' : '0' }});
   voiceHdrRow.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'0' }}, 'Voice Reveal'));
-  voiceHdrRow.appendChild(renderToggle(t, cfg.listenVoice, () => { cfg.listenVoice = !cfg.listenVoice; saveTweaks(); render(); }));
+  voiceHdrRow.appendChild(renderToggle(t, cfg.listenVoice || cfg.screenReaderMode, () => { cfg.listenVoice = !cfg.listenVoice; saveTweaks(); render(); }, 'Voice Reveal', { disabled: cfg.screenReaderMode }));
   secVoice.appendChild(voiceHdrRow);
 
   if (cfg.listenVoice) {
     // Gender selector with availability check
-    const voiceGenderRow = el('div', { style:{ display:'flex', gap:'8px', marginBottom:'12px' }});
+    const voiceGenderRow = el('div', { role:'radiogroup', 'aria-label':'Voice Gender', style:{ display:'flex', gap:'8px', marginBottom:'12px' }});
     [['female', 'Woman'], ['male', 'Man']].forEach(([val, label]) => {
       const avail = !!findVoiceForGender(val, cfg.allowCloudVoice);
       const sel = cfg.voiceGender === val && avail;
       const btn = el('button', {
+        role:'radio', 'aria-checked': String(sel),
+        'aria-label': `${label} voice${avail ? '' : ' — unavailable'}`,
         style:{
           flex:'1', padding:'10px 4px',
           border:`2px solid ${avail && sel ? t.accent : t.border}`,
@@ -1844,9 +1926,9 @@ function renderSettingsModal(t) {
     volHdr.appendChild(volValSpan);
     volRow.appendChild(volHdr);
     const volSliderRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px' }});
-    const volMinus = el('button', { style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '−');
-    const volSlider = el('input', { type:'range', min:'1', max:'100', value:String(cfg.voiceVolume), style:{ flex:'1', accentColor:t.accent }});
-    const volPlus  = el('button', { style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '+');
+    const volMinus = el('button', { 'aria-label':'Decrease voice volume', style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '−');
+    const volSlider = el('input', { type:'range', min:'1', max:'100', value:String(cfg.voiceVolume), 'aria-label':'Voice Volume', style:{ flex:'1', accentColor:t.accent }});
+    const volPlus  = el('button', { 'aria-label':'Increase voice volume', style:{ width:'28px', height:'28px', border:`1px solid ${t.border}`, borderRadius:'6px', background:t.bgCard, color:t.text, fontSize:'16px', cursor:'pointer', flexShrink:'0' }}, '+');
     const updateVol = v => { cfg.voiceVolume = Math.min(100, Math.max(1, v)); volSlider.value = cfg.voiceVolume; volValSpan.textContent = `${cfg.voiceVolume}%`; };
     volSlider.addEventListener('input',  () => updateVol(+volSlider.value));
     volSlider.addEventListener('change', () => saveTweaks());
@@ -1865,7 +1947,7 @@ function renderSettingsModal(t) {
     cloudLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'13px', color:t.text }}, 'Allow Cloud Voices'));
     cloudLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Use internet voices when no local match'));
     cloudRow.appendChild(cloudLeft);
-    cloudRow.appendChild(renderToggle(t, cfg.allowCloudVoice, () => { cfg.allowCloudVoice = !cfg.allowCloudVoice; saveTweaks(); render(); }));
+    cloudRow.appendChild(renderToggle(t, cfg.allowCloudVoice, () => { cfg.allowCloudVoice = !cfg.allowCloudVoice; saveTweaks(); render(); }, 'Allow Cloud Voices'));
     secVoice.appendChild(cloudRow);
   }
   modal.appendChild(secVoice);
@@ -1877,7 +1959,7 @@ function renderSettingsModal(t) {
   missedLeft.appendChild(el('div', { style:{ ...lblStyle, marginBottom:'2px' }}, 'Save Missed Words'));
   missedLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Track missed words for targeted practice'));
   missedHdrRow.appendChild(missedLeft);
-  missedHdrRow.appendChild(renderToggle(t, cfg.saveMissedWords, () => { cfg.saveMissedWords = !cfg.saveMissedWords; saveTweaks(); render(); }));
+  missedHdrRow.appendChild(renderToggle(t, cfg.saveMissedWords, () => { cfg.saveMissedWords = !cfg.saveMissedWords; saveTweaks(); render(); }, 'Save Missed Words'));
   secMissed.appendChild(missedHdrRow);
   if (!cfg.saveMissedWords) {
     secMissed.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'14px 0' }}));
@@ -1908,10 +1990,13 @@ function renderSettingsModal(t) {
   // Theme picker
   const sec6 = el('div', { style:{ marginBottom:'8px' }});
   sec6.appendChild(el('label', { style:lblStyle }, 'Theme'));
-  const themeRow = el('div', { style:{ display:'flex', gap:'8px' }});
+  const themeRow = el('div', { role:'radiogroup', 'aria-label':'Theme', style:{ display:'flex', gap:'8px' }});
   Object.values(THEMES).forEach(th => {
     const sel = tweaks.theme === th.id;
-    const btn = el('button', { style:{
+    const btn = el('button', {
+      role:'radio', 'aria-checked': String(sel),
+      'aria-label': `${th.label} theme`,
+      style:{
       flex:'1', padding:'10px 4px', borderRadius:'8px',
       border:`2px solid ${sel ? t.accent : t.border}`,
       background:th.bg, color:th.text, fontSize:'13px', fontWeight:'600',
@@ -1944,7 +2029,9 @@ function renderSettingsModal(t) {
 function renderListen(t) {
   const ls = state.listenState;
   const wrap = el('div', { className:'fade-in', style:{ paddingTop:'80px', paddingBottom:'32px', textAlign:'center' }});
-  wrap.appendChild(el('div', { id:'listen-word', style:{
+  wrap.appendChild(el('div', { id:'listen-word',
+    'aria-live':'polite', 'aria-atomic':'true', 'aria-label':'Current word',
+    style:{
     fontFamily:t.mono, fontSize:'clamp(32px, 12vw, 56px)', fontWeight:'700',
     color:t.accent, letterSpacing:'4px', marginBottom:'64px',
     minHeight:'80px', display:'flex', alignItems:'center', justifyContent:'center',
@@ -1979,6 +2066,12 @@ function renderListen(t) {
 
 function renderListenSummary(t) {
   const ls = state.listenState;
+  if (!state._listenSummaryAnnounced) {
+    state._listenSummaryAnnounced = true;
+    const msg = `Listen complete. ${ls.wordCount} word${ls.wordCount !== 1 ? 's' : ''} played in ${fmtHMS(ls.elapsed)}.`;
+    if (state.cfg.screenReaderMode) setTimeout(() => announceTTS(msg), 400);
+    else announce(msg);
+  }
   const wrap = el('div', { className:'fade-in', style:{ paddingTop:'64px', paddingBottom:'32px', textAlign:'center' }});
   wrap.appendChild(el('div', { style:{
     fontFamily:t.mono, fontSize:'13px', color:t.accent,
@@ -2269,6 +2362,18 @@ function renderSummary(t) {
   actions.appendChild(settingsBtn);
   actions.appendChild(againBtn);
   wrap.appendChild(actions);
+
+  // Spoken summary — fire once per session, not on every re-render of this screen
+  if (!state._summaryAnnounced) {
+    state._summaryAnnounced = true;
+    if (state.cfg.screenReaderMode) {
+      setTimeout(() => announceTTS(
+        `Session complete. ${score.c} of ${score.t} correct. ${acc} percent. ${grade.label}.`
+      ), 400);
+    } else {
+      announce(`Session complete. Score ${score.c} of ${score.t}, ${acc} percent.`);
+    }
+  }
   return wrap;
 }
 
@@ -2309,17 +2414,26 @@ function renderWave(t) {
   return wrap;
 }
 
-function renderToggle(t, on, onClick) {
-  const btn = el('button', { style:{
-    flexShrink:'0', width:'44px', height:'26px', borderRadius:'13px',
-    background: on ? t.accent : t.border, border:'none', position:'relative', transition:'background 0.2s',
-  }});
-  btn.appendChild(el('span', { style:{
+function renderToggle(t, on, onClick, ariaLabel, opts) {
+  const disabled = !!(opts && opts.disabled);
+  const btn = el('button', {
+    role: 'switch',
+    'aria-checked': String(on),
+    'aria-label': ariaLabel || 'Toggle',
+    'aria-disabled': disabled ? 'true' : 'false',
+    style:{
+      flexShrink:'0', width:'44px', height:'26px', borderRadius:'13px',
+      background: on ? t.accent : t.border, border:'none', position:'relative', transition:'background 0.2s',
+      opacity: disabled ? '0.5' : '1', cursor: disabled ? 'not-allowed' : 'pointer',
+    }
+  });
+  btn.appendChild(el('span', { 'aria-hidden':'true', style:{
     position:'absolute', top:'3px', left: on ? '21px' : '3px',
     width:'20px', height:'20px', borderRadius:'50%',
     background: on ? t.accentText : t.text, transition:'left 0.2s', display:'block',
   }}));
-  btn.addEventListener('click', onClick);
+  if (disabled) btn.disabled = true;
+  else btn.addEventListener('click', onClick);
   return btn;
 }
 
@@ -2416,6 +2530,7 @@ async function startPractice() {
   state.playState = 'playing';
   state.score = { c:0, t:0 };
   state.sessionLog = [];
+  state._summaryAnnounced = false;
   render();                     // immediate screen switch on first tap
   warmUpSpeechSync();           // MUST be called synchronously before any await
   await unlockAudio();          // iOS audio unlock — must stay within gesture handler
@@ -2423,6 +2538,11 @@ async function startPractice() {
   // Run the speech heartbeat in practice too when voice is on, so iOS WebAudio
   // ducking state matches listen mode and morse playback is consistently leveled.
   if (state.cfg.listenVoice) startSpeechHeartbeat();
+  if (state.cfg.screenReaderMode) {
+    announceTTS(`Practice started. ${state.cfg.sessionSize} questions at ${state.cfg.wpm} words per minute.`);
+  } else {
+    announce(`Practice started. ${state.cfg.sessionSize} questions.`);
+  }
   doPlay();
 }
 
@@ -2430,6 +2550,7 @@ async function startListen() {
   const ls = state.listenState;
   if (ls.active || ls._starting) return;   // guard: ignore double-taps during audio unlock
   ls._starting = true;
+  state._listenSummaryAnnounced = false;
   // Switch screen immediately so the user sees the transition on the first tap.
   state.screen = 'listen';
   render();
@@ -2457,6 +2578,11 @@ async function startListen() {
     if (ls.elapsed >= state.cfg.listenDuration) stopListen();
   }, 1000);
   render();
+  if (state.cfg.screenReaderMode) {
+    announceTTS(`Listen mode. Duration ${fmtDur(state.cfg.listenDuration)}.`);
+  } else {
+    announce('Listen mode started.');
+  }
 
   const { cfg, tweaks } = state;
   const pool = getWordPool(cfg.listKey);
@@ -2576,7 +2702,16 @@ async function doPlay() {
   } finally {
     state.playing = false;
   }
-  if (state.playState === 'playing') { state.playState = 'ready'; transitionToReady(); }
+  if (state.playState === 'playing') { state.playState = 'ready'; transitionToReady(); speakChoicesIfSR(); }
+}
+
+// In Screen Reader Mode, read the four choices aloud after Morse plays so the
+// user can pick by number key (1–4) without seeing the screen.
+function speakChoicesIfSR() {
+  if (!state.cfg.screenReaderMode || !state.q) return;
+  const list = state.q.choices.map((c, i) => `${i + 1}. ${c}`).join('. ');
+  // Tiny delay so the Morse-end audio settles before speech begins
+  setTimeout(() => announceTTS(`Choose: ${list}.`), 300);
 }
 
 function _showWave() {
@@ -2626,6 +2761,9 @@ function transitionToAnswered(choice) {
     if (ok) { s.textContent = '✓ Correct!'; s.style.color = t.correct; s.style.fontWeight = '700'; s.style.fontSize = '18px'; }
     else { s.textContent = ''; }
   }
+  // Screen-reader-only announcement (visible reveal section also shows the word)
+  if (ok) announce(`Correct. Score ${state.score.c} of ${state.score.t}.`);
+  else    announce(`Incorrect. The answer is ${q.correct}. Score ${state.score.c} of ${state.score.t}.`);
   if (!ok && s) s.insertAdjacentElement('afterend', makeWrongActions(t));
   const g = document.getElementById('cw-choices');
   if (g) Array.from(g.querySelectorAll('button')).forEach(btn => {
@@ -2768,19 +2906,26 @@ function handleAnswer(choice) {
   transitionToAnswered(choice);
 
   const sessionDone = state.sessionLog.length >= state.cfg.sessionSize;
+  const sr = state.cfg.screenReaderMode;
   if (ok) {
     if (state.cfg.listenVoice) speakWord(choice);
+    if (sr) {
+      setTimeout(() => announceTTS(`Correct. ${state.score.c} of ${state.score.t}.`), 700);
+    }
+    const delay = sr ? 2400 : 1100;
     setTimeout(() => {
       if (sessionDone) { stopSpeechHeartbeat(); updateMissedWords(state.sessionLog); state.screen = 'summary'; render(); return; }
       handleNext();
-    }, 1100);
+    }, delay);
   } else {
     if (state.cfg.listenVoice) {
-      // Speak wrong word → 0.5s pause → speak correct word → then replay morse
-      speakWord(choice)
+      // Speak wrong word → 0.5s pause → speak correct word → then (SR) score → replay morse
+      let chain = speakWord(choice)
         .then(() => new Promise(r => setTimeout(r, 500)))
-        .then(() => speakWord(state.q.correct))
-        .then(() => doReplay());
+        .then(() => speakWord(state.q.correct));
+      if (sr) chain = chain.then(() => new Promise(r => setTimeout(r, 200)))
+                           .then(() => speakWord(`Score ${state.score.c} of ${state.score.t}.`));
+      chain.then(() => doReplay());
     } else {
       setTimeout(() => doReplay(), 400);
     }
