@@ -1247,7 +1247,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '2.0');
+  infoRow('Version', '2.1');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
@@ -2498,7 +2498,7 @@ async function startListen() {
       let firstRepeatP = null;
       if (cfg.listenRepeat > 0) {
         const estSec = estimateTtsSec(word, cfg.voiceRate ?? 1);
-        firstRepeatP = playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, estSec + 0.5);
+        firstRepeatP = playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, estSec + (_isIOS ? 1.5 : 0.5));
       }
       await speakWord(word);
       if (ls.stopRequested) break;
