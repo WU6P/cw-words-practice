@@ -2624,17 +2624,23 @@ async function startListen() {
       await listenSleep(cfg.listenDelay * stdGap, ls);
       if (ls.stopRequested) break;
       // Kick off first after-voice repeat blob in parallel with TTS.
-      // Baked-in silence covers estimated TTS duration so Morse starts clean after voice.
+      // Baked-in silence covers estimated TTS duration + 0.7 s buffer so Morse
+      // tones begin after the iOS audio session fully deactivates post-TTS.
       let firstAfterP = null;
       if (cfg.listenRepeatAfter > 0) {
         const estSec = estimateTtsSec(word, cfg.voiceRate ?? 1);
-        firstAfterP = playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, estSec + (_isIOS ? 2.25 : 0.5));
+        firstAfterP = playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, estSec + 0.7);
       }
       await speakWord(word);
       if (ls.stopRequested) break;
-      try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch(e) {}
-      try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
-      primeAudio(0.15);
+      // DO NOT call speechSynthesis.cancel() here — onend already implies TTS is
+      // done, and cancel() on some iOS versions actively extends the audio session
+      // deactivation window, keeping the duck on the parallel Morse blob longer.
+      // DO NOT call primeAudio() here — firing a WebAudio BufferSource immediately
+      // after TTS triggers iOS session re-arbitration in the deactivation window.
+      // ctx.resume() is fire-and-forget: Morse uses HTMLAudio on iOS so the
+      // AudioContext state does not block blob playback.
+      { try { const ctx = getCtx(); if (ctx.state === 'suspended') ctx.resume().catch(() => {}); } catch(e) {} }
       if (firstAfterP) {
         await firstAfterP;
         if (ls.stopRequested) break;
