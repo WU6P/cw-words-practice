@@ -420,6 +420,7 @@ let _morseVolRampTimer = null;
 function _startMorseVolRamp(flatMs = 1500, rampMs = 200) {
   if (_morseVolRampTimer) { clearInterval(_morseVolRampTimer); _morseVolRampTimer = null; }
   if (!_morseAudioB) return;
+  const dump = state.charDump ?? 0.1;
   _morseAudioB.volume = 1.0;
   const t0 = Date.now();
   _morseVolRampTimer = setInterval(() => {
@@ -429,7 +430,7 @@ function _startMorseVolRamp(flatMs = 1500, rampMs = 200) {
       _morseAudioB.volume = 1.0;
     } else {
       const t = Math.min(1.0, (elapsed - flatMs) / rampMs);
-      _morseAudioB.volume = Math.max(0.1, 1.0 - 0.9 * t);
+      _morseAudioB.volume = Math.max(dump, 1.0 - (1.0 - dump) * t);
       if (t >= 1.0) { clearInterval(_morseVolRampTimer); _morseVolRampTimer = null; }
     }
   }, 16);
@@ -439,14 +440,15 @@ function _stopMorseVolRamp() {
   if (_morseAudioB) _morseAudioB.volume = 1.0;
 }
 
-// 4-second continuous dits blob for characterization (always element B).
-function _playDitsBlob(durationSec, frequency) {
+// continuous dits blob for characterization (always element B).
+function _playDitsBlob(durationSec, frequency, wpm) {
   const sr = 22050;
   const amp = (state.cfg.cwVolume ?? 75) / 100;
   const n = Math.ceil(durationSec * sr);
   const data = new Float32Array(n);
-  const dit = 0.06;  // fixed 20 WPM
-  const gap = 0.06;
+  const ditSec = 1.2 / (wpm || state.cfg.wpm || 20);
+  const dit = ditSec;
+  const gap = ditSec;
   const twoPiF = 2 * Math.PI * frequency;
   const ramp = Math.round(Math.min(0.006, dit * 0.15) * sr);
   let t = 0.1;
@@ -470,12 +472,11 @@ async function runCharTest() {
   render();
   try {
     const { cfg, tweaks } = state;
-    const fwpm = cfg.farnsworth ? Math.min(cfg.fwpm, cfg.wpm) : cfg.wpm;
-    await playMorseAudioBlob('5', cfg.wpm, fwpm, tweaks.frequency, 0.5, false);
+    await _playDitsBlob(1.0, tweaks.frequency, cfg.wpm);
     await speakWord('Test');
     _killMorseAudioA();
     _startMorseVolRamp(state.charFlatMs, state.charRampMs);
-    await _playDitsBlob(4.0, tweaks.frequency);
+    await _playDitsBlob(4.0, tweaks.frequency, cfg.wpm);
   } catch(e) {}
   _charPlaying = false;
   try { render(); } catch(e) {}
@@ -843,7 +844,7 @@ const state = {
   autoPlayTimer: null,
   currentTone: _saved.frequency ?? 550,
   listenState: { active:false, elapsed:0, wordCount:0, currentWord:'', stopRequested:false, timerInterval:null, _sleepResolve:null },
-  charOpen: false, charFlatMs: 1500, charRampMs: 200,
+  charOpen: false, charFlatMs: 1500, charRampMs: 200, charDump: 0.1,
 };
 
 function saveTweaks() {
@@ -1152,7 +1153,7 @@ function renderCharOverlay(t) {
 
   panel.appendChild(el('div', { style:{
     fontSize:'12px', color:t.textMuted, textAlign:'center', lineHeight:'1.5',
-  }}, 'Plays: 5 (morse) → Test (voice) → 4 s dits.\nAdjust sliders until dits sound even throughout.'));
+  }}, 'Plays: 1 s dits → Test (voice) → 4 s dits.\nAdjust sliders until dits sound even throughout.'));
 
   // FlatMs slider
   const makeSlider = (label, key, min, max, step, unit) => {
@@ -1174,7 +1175,30 @@ function renderCharOverlay(t) {
   };
 
   panel.appendChild(makeSlider('Flat duck (hold B=1.0)', 'charFlatMs', 300, 3000, 50, 'ms'));
-  panel.appendChild(makeSlider('Ramp down (1.0→0.1)', 'charRampMs', 50, 600, 10, 'ms'));
+  panel.appendChild(makeSlider('Ramp down (1.0→dump)', 'charRampMs', 50, 600, 10, 'ms'));
+
+  // Dump value — log-scale slider 0.01 to 1.0
+  {
+    const row = el('div', { style:{ display:'flex', flexDirection:'column', gap:'6px' }});
+    const hdr = el('div', { style:{ display:'flex', justifyContent:'space-between' }});
+    hdr.appendChild(el('span', { style:{ fontSize:'12px', color:t.textMuted, fontWeight:'600' }}, 'Dump volume (ramp floor)'));
+    const fmt = v => v < 0.1 ? v.toFixed(3) : v.toFixed(2);
+    const valSpan = el('span', { style:{ fontSize:'12px', color:t.accent, fontFamily:'monospace', fontWeight:'700' }}, fmt(state.charDump));
+    hdr.appendChild(valSpan);
+    row.appendChild(hdr);
+    // internal slider 0–200 maps log10 linearly: val = 10^(sliderPos/100 - 2), range 0.01–1.0
+    const toSlider = v => Math.round((Math.log10(v) + 2) * 100);
+    const fromSlider = s => Math.pow(10, s / 100 - 2);
+    const slider = el('input', { type:'range', min:0, max:200, step:1, value: toSlider(state.charDump), style:{
+      width:'100%', accentColor: t.accent,
+    }});
+    slider.addEventListener('input', () => {
+      state.charDump = parseFloat(fromSlider(Number(slider.value)).toPrecision(3));
+      valSpan.textContent = fmt(state.charDump);
+    });
+    row.appendChild(slider);
+    panel.appendChild(row);
+  }
 
   // Play button
   const playBtn = el('button', { style:{
@@ -2148,7 +2172,7 @@ function renderListen(t) {
       color:t.textMuted, fontSize:'12px', fontWeight:'600', letterSpacing:'1px',
       display:'block', margin:'18px auto 0',
     }}, '⚙ Characterize');
-    charBtn.addEventListener('click', () => { state.charOpen = true; render(); });
+    charBtn.addEventListener('click', () => { if (listenState.active) stopListen(); state.charOpen = true; render(); });
     wrap.appendChild(charBtn);
   }
 
