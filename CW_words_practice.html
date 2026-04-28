@@ -417,14 +417,16 @@ function _killMorseAudioA() {
 // to 0.25 as iOS snaps back — product stays ~constant throughout.
 // flatMs / rampMs are empirical; a measurement tool can refine them later.
 let _morseVolRampTimer = null;
-function _startMorseVolRamp(flatMs = 1500, rampMs = 200) {
+function _startMorseVolRamp() {
   if (_morseVolRampTimer) { clearInterval(_morseVolRampTimer); _morseVolRampTimer = null; }
   if (!_morseAudioB) return;
-  const dump = state.charDump ?? 0.1;
   _morseAudioB.volume = 1.0;
   const t0 = Date.now();
   _morseVolRampTimer = setInterval(() => {
     if (!_morseAudioB) { clearInterval(_morseVolRampTimer); _morseVolRampTimer = null; return; }
+    const flatMs = state.charFlatMs;
+    const rampMs = state.charRampMs;
+    const dump = state.charDump ?? 0.1;
     const elapsed = Date.now() - t0;
     if (elapsed < flatMs) {
       _morseAudioB.volume = 1.0;
@@ -475,7 +477,7 @@ async function runCharTest() {
     await _playDitsBlob(1.0, tweaks.frequency, cfg.wpm);
     await speakWord('Test');
     _killMorseAudioA();
-    _startMorseVolRamp(state.charFlatMs, state.charRampMs);
+    _startMorseVolRamp();
     await _playDitsBlob(4.0, tweaks.frequency, cfg.wpm);
   } catch(e) {}
   _charPlaying = false;
@@ -2714,7 +2716,7 @@ async function startListen() {
         // on the next word's beep / pre-voice Morse.
         _killMorseAudioA();
         // Start duck-compensation ramp using current charFlatMs/charRampMs.
-        _startMorseVolRamp(state.charFlatMs, state.charRampMs);
+        _startMorseVolRamp();
       } else {
         try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
         primeAudio(0.15);
