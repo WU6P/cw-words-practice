@@ -429,7 +429,7 @@ function _startMorseVolRamp(flatMs = 1500, rampMs = 200) {
       _morseAudioB.volume = 1.0;
     } else {
       const t = Math.min(1.0, (elapsed - flatMs) / rampMs);
-      _morseAudioB.volume = Math.max(0.25, 1.0 - 0.75 * t);
+      _morseAudioB.volume = Math.max(0.1, 1.0 - 0.9 * t);
       if (t >= 1.0) { clearInterval(_morseVolRampTimer); _morseVolRampTimer = null; }
     }
   }, 16);
@@ -437,6 +437,48 @@ function _startMorseVolRamp(flatMs = 1500, rampMs = 200) {
 function _stopMorseVolRamp() {
   if (_morseVolRampTimer) { clearInterval(_morseVolRampTimer); _morseVolRampTimer = null; }
   if (_morseAudioB) _morseAudioB.volume = 1.0;
+}
+
+// 4-second continuous dits blob for characterization (always element B).
+function _playDitsBlob(durationSec, frequency) {
+  const sr = 22050;
+  const amp = (state.cfg.cwVolume ?? 75) / 100;
+  const n = Math.ceil(durationSec * sr);
+  const data = new Float32Array(n);
+  const dit = 0.06;  // fixed 20 WPM
+  const gap = 0.06;
+  const twoPiF = 2 * Math.PI * frequency;
+  const ramp = Math.round(Math.min(0.006, dit * 0.15) * sr);
+  let t = 0.1;
+  while (t + dit < durationSec - 0.05) {
+    const s0 = Math.round(t * sr);
+    const s1 = Math.min(Math.round((t + dit) * sr), n);
+    const span = s1 - s0;
+    for (let i = 0; i < span; i++) {
+      const env = i < ramp ? i / ramp : (span - 1 - i) < ramp ? (span - 1 - i) / ramp : 1.0;
+      data[s0 + i] = amp * env * Math.sin(twoPiF * (s0 + i) / sr);
+    }
+    t += dit + gap;
+  }
+  return _playPcmBlob(data, sr, durationSec, true);
+}
+
+let _charPlaying = false;
+async function runCharTest() {
+  if (_charPlaying) return;
+  _charPlaying = true;
+  render();
+  try {
+    const { cfg, tweaks } = state;
+    const fwpm = cfg.farnsworth ? Math.min(cfg.fwpm, cfg.wpm) : cfg.wpm;
+    await playMorseAudioBlob('5', cfg.wpm, fwpm, tweaks.frequency, 0.5, false);
+    await speakWord('Test');
+    _killMorseAudioA();
+    _startMorseVolRamp(state.charFlatMs, state.charRampMs);
+    await _playDitsBlob(4.0, tweaks.frequency);
+  } catch(e) {}
+  _charPlaying = false;
+  try { render(); } catch(e) {}
 }
 
 function playListenBeepBlob(charWpm, frequency) {
@@ -801,6 +843,7 @@ const state = {
   autoPlayTimer: null,
   currentTone: _saved.frequency ?? 550,
   listenState: { active:false, elapsed:0, wordCount:0, currentWord:'', stopRequested:false, timerInterval:null, _sleepResolve:null },
+  charOpen: false, charFlatMs: 1500, charRampMs: 200,
 };
 
 function saveTweaks() {
@@ -1020,6 +1063,8 @@ function render() {
   if (_oldHelpOverlay) _oldHelpOverlay.remove();
   const _oldDDOverlay = document.getElementById('_help-dd-overlay');
   if (_oldDDOverlay) _oldDDOverlay.remove();
+  const _oldCharOverlay = document.getElementById('_char-overlay');
+  if (_oldCharOverlay) _oldCharOverlay.remove();
   const t = T();
   // Push theme colours to CSS variables for hover/focus rules (S4, S5)
   document.documentElement.style.setProperty('--t-accent',   t.accent);
@@ -1078,8 +1123,79 @@ function render() {
     document.body.appendChild(helpOverlay);
   }
 
+  if (state.charOpen) {
+    const charOverlay = renderCharOverlay(t);
+    charOverlay.id = '_char-overlay';
+    document.body.appendChild(charOverlay);
+  }
+
   // Apply body background
   document.body.style.background = t.bg;
+}
+
+// ── CHARACTERIZE OVERLAY ──────────────────────────────────────────────────────
+function renderCharOverlay(t) {
+  const overlay = el('div', { style:{
+    position:'fixed', inset:'0', background:'#000a', zIndex:60,
+    display:'flex', alignItems:'center', justifyContent:'center', padding:'24px',
+  }});
+
+  const panel = el('div', { style:{
+    background:t.bgCard, border:`1px solid ${t.border}`, borderRadius:'16px',
+    padding:'28px 24px', width:'100%', maxWidth:'360px',
+    display:'flex', flexDirection:'column', gap:'20px',
+  }});
+
+  panel.appendChild(el('div', { style:{
+    fontSize:'15px', fontWeight:'700', color:t.text, textAlign:'center',
+  }}, 'Duck Characterize'));
+
+  panel.appendChild(el('div', { style:{
+    fontSize:'12px', color:t.textMuted, textAlign:'center', lineHeight:'1.5',
+  }}, 'Plays: 5 (morse) → Test (voice) → 4 s dits.\nAdjust sliders until dits sound even throughout.'));
+
+  // FlatMs slider
+  const makeSlider = (label, key, min, max, step, unit) => {
+    const row = el('div', { style:{ display:'flex', flexDirection:'column', gap:'6px' }});
+    const hdr = el('div', { style:{ display:'flex', justifyContent:'space-between' }});
+    hdr.appendChild(el('span', { style:{ fontSize:'12px', color:t.textMuted, fontWeight:'600' }}, label));
+    const valSpan = el('span', { style:{ fontSize:'12px', color:t.accent, fontFamily:'monospace', fontWeight:'700' }}, `${state[key]} ${unit}`);
+    hdr.appendChild(valSpan);
+    row.appendChild(hdr);
+    const slider = el('input', { type:'range', min, max, step, value: state[key], style:{
+      width:'100%', accentColor: t.accent,
+    }});
+    slider.addEventListener('input', () => {
+      state[key] = Number(slider.value);
+      valSpan.textContent = `${state[key]} ${unit}`;
+    });
+    row.appendChild(slider);
+    return row;
+  };
+
+  panel.appendChild(makeSlider('Flat duck (hold B=1.0)', 'charFlatMs', 300, 3000, 50, 'ms'));
+  panel.appendChild(makeSlider('Ramp down (1.0→0.1)', 'charRampMs', 50, 600, 10, 'ms'));
+
+  // Play button
+  const playBtn = el('button', { style:{
+    padding:'12px', background: _charPlaying ? t.border : t.accent,
+    border:'none', borderRadius:'10px', color: _charPlaying ? t.textMuted : t.accentText,
+    fontSize:'14px', fontWeight:'700', cursor: _charPlaying ? 'default' : 'pointer',
+  }}, _charPlaying ? '▶ Playing…' : '▶ Play Test');
+  playBtn.addEventListener('click', () => { if (!_charPlaying) runCharTest(); });
+  panel.appendChild(playBtn);
+
+  // Done button
+  const doneBtn = el('button', { style:{
+    padding:'12px', background:'none',
+    border:`1px solid ${t.border}`, borderRadius:'10px',
+    color:t.textMuted, fontSize:'14px', fontWeight:'600',
+  }}, 'Done');
+  doneBtn.addEventListener('click', () => { state.charOpen = false; render(); });
+  panel.appendChild(doneBtn);
+
+  overlay.appendChild(panel);
+  return overlay;
 }
 
 // ── HELP MODAL ────────────────────────────────────────────────────────────────
@@ -2024,6 +2140,18 @@ function renderListen(t) {
   }}, '■ STOP');
   stopBtn.addEventListener('click', () => stopListen());
   wrap.appendChild(stopBtn);
+
+  if (_isIOS) {
+    const charBtn = el('button', { style:{
+      marginTop:'18px', padding:'8px 24px', background:'none',
+      border:`1px solid ${t.border}`, borderRadius:'8px',
+      color:t.textMuted, fontSize:'12px', fontWeight:'600', letterSpacing:'1px',
+      display:'block', margin:'18px auto 0',
+    }}, '⚙ Characterize');
+    charBtn.addEventListener('click', () => { state.charOpen = true; render(); });
+    wrap.appendChild(charBtn);
+  }
+
   return wrap;
 }
 
@@ -2561,10 +2689,8 @@ async function startListen() {
         // starts into a clean session. A's 0.5 s lead silence covers its cold-ramp
         // on the next word's beep / pre-voice Morse.
         _killMorseAudioA();
-        // Start duck-compensation ramp: B.volume holds at 1.0 while iOS duck is
-        // flat (~1500 ms), then drops to 0.25 as iOS snaps back (~200 ms), keeping
-        // perceived volume constant throughout all post-voice repeats.
-        _startMorseVolRamp();
+        // Start duck-compensation ramp using current charFlatMs/charRampMs.
+        _startMorseVolRamp(state.charFlatMs, state.charRampMs);
       } else {
         try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
         primeAudio(0.15);
