@@ -2509,7 +2509,7 @@ async function startListen() {
       let firstAfterP = null;
       if (cfg.listenRepeatAfter > 0) {
         const estSec = estimateTtsSec(word, cfg.voiceRate ?? 1);
-        firstAfterP = playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, estSec + (_isIOS ? 2.0 : 0.5));
+        firstAfterP = playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, estSec + (_isIOS ? 2.25 : 0.5));
       }
       await speakWord(word);
       if (ls.stopRequested) break;
