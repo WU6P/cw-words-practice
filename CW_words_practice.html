@@ -720,7 +720,8 @@ const state = {
     sessionSize:    _saved.sessionSize    ?? 20,
     listenMode:     _saved.listenMode     ?? false,
     listenDuration: _saved.listenDuration ?? 1800,
-    listenRepeat:   _saved.listenRepeat   ?? 2,
+    listenRepeatBefore: _saved.listenRepeatBefore ?? 0,
+    listenRepeatAfter:  _saved.listenRepeatAfter  ?? (_saved.listenRepeat ?? 2),
     listenDelay:    _saved.listenDelay    ?? 3,
     listenVoice:      _saved.listenVoice      ?? true,
     voiceGender:      _saved.voiceGender      ?? 'female',
@@ -1127,7 +1128,8 @@ function renderManualContent(t) {
   P('In Listen mode the app runs a continuous stream of Morse words — like a beacon or on-the-air practice session. No multiple choice; just listen and copy.');
   B('Session Duration', 'How long the session runs: 5 minutes to 12 hours. A timer counts up in the header. The session ends automatically when time is up, or you can stop it early.');
   B('Announcement Dit', 'Before each new word a soft dit (the letter E) is played at reduced volume as a "new word coming" signal, followed by a brief pause.');
-  B('Word Repeats', 'How many additional times the word is played after the first play. Setting 0 plays each word exactly once; setting 1 plays it twice; setting 2 plays it three times, and so on. Range: 0–10.');
+  B('Repeats Before Voice', 'How many extra Morse plays to insert between the first play and the voice reveal. Range: 0–10.');
+  B('Repeats After Voice', 'How many Morse plays follow the voice reveal. Range: 0–10. When voice is off, total repeats = Before + After.');
   B('Word Gap', 'The silence after the first Morse play — before the next repeat begins (voice off) or before the voice reveal starts (voice on). Expressed as a multiple (1×–20×) of the standard inter-word space at the current WPM. A larger value gives more thinking time.');
   B('Voice Reveal', 'When enabled, the spoken English word is announced after the first Morse play. The spoken word comes after the first play; subsequent repeats are Morse only.');
 
@@ -1688,19 +1690,23 @@ function renderSettingsModal(t) {
     durRange.appendChild(el('span', {}, '5 min')); durRange.appendChild(el('span', {}, '12 h'));
     lnExtra.appendChild(durRange);
 
-    // Word Repeats
-    lnExtra.appendChild(el('div', { style:{ height:'14px' }}));
-    const repRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
-    const repLbl = el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, 'Word Repeats');
-    const repStepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px', width:'120px', flexShrink:'0', justifyContent:'flex-end' }});
-    const repMinus = el('button', { style:stepBtnStyle }, '−');
-    const repVal = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'32px', textAlign:'center' }}, String(cfg.listenRepeat));
-    const repPlus = el('button', { style:stepBtnStyle }, '+');
-    repMinus.addEventListener('click', () => { cfg.listenRepeat = Math.max(0, cfg.listenRepeat - 1); repVal.textContent = cfg.listenRepeat; saveTweaks(); });
-    repPlus.addEventListener('click',  () => { cfg.listenRepeat = Math.min(10, cfg.listenRepeat + 1); repVal.textContent = cfg.listenRepeat; saveTweaks(); });
-    repStepper.appendChild(repMinus); repStepper.appendChild(repVal); repStepper.appendChild(repPlus);
-    repRow.appendChild(repLbl); repRow.appendChild(repStepper);
-    lnExtra.appendChild(repRow);
+    // Word Repeats Before / After
+    const makeRepStepper = (label, key) => {
+      lnExtra.appendChild(el('div', { style:{ height:'14px' }}));
+      const row = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
+      const lbl = el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, label);
+      const stepper = el('div', { style:{ display:'flex', alignItems:'center', gap:'8px', width:'120px', flexShrink:'0', justifyContent:'flex-end' }});
+      const minus = el('button', { style:stepBtnStyle }, '−');
+      const val = el('span', { style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'32px', textAlign:'center' }}, String(cfg[key]));
+      const plus = el('button', { style:stepBtnStyle }, '+');
+      minus.addEventListener('click', () => { cfg[key] = Math.max(0, cfg[key] - 1); val.textContent = cfg[key]; saveTweaks(); });
+      plus.addEventListener('click',  () => { cfg[key] = Math.min(10, cfg[key] + 1); val.textContent = cfg[key]; saveTweaks(); });
+      stepper.appendChild(minus); stepper.appendChild(val); stepper.appendChild(plus);
+      row.appendChild(lbl); row.appendChild(stepper);
+      lnExtra.appendChild(row);
+    };
+    makeRepStepper('Repeats Before Voice', 'listenRepeatBefore');
+    makeRepStepper('Repeats After Voice',  'listenRepeatAfter');
 
     // Word Gap
     lnExtra.appendChild(el('div', { style:{ height:'10px' }}));
@@ -2484,31 +2490,36 @@ async function startListen() {
     const stdGap = 7 * 1200 / fwpm;
 
     if (cfg.listenVoice) {
-      // Voice ON: standard gap, first morse, configurable gap before voice, voice reveal, then repeats
+      // Voice ON: first morse, before-voice repeats, gap, voice reveal, after-voice repeats
       await listenSleep(stdGap, ls);
       if (ls.stopRequested) break;
       await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
       if (ls.stopRequested) break;
+      for (let r = 0; r < cfg.listenRepeatBefore; r++) {
+        await listenSleep(cfg.listenDelay * stdGap, ls);
+        if (ls.stopRequested) break;
+        await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
+        if (ls.stopRequested) break;
+      }
+      if (ls.stopRequested) break;
       await listenSleep(cfg.listenDelay * stdGap, ls);
       if (ls.stopRequested) break;
-      // Kick off the first repeat blob NOW, in parallel with speech.
-      // The blob bakes in silence = estimated TTS duration + 0.5 s buffer, so
-      // its Morse tones begin after TTS ends and the duck has cleared — no
-      // low-volume ramp-up on the first dit regardless of how long the duck holds.
-      let firstRepeatP = null;
-      if (cfg.listenRepeat > 0) {
+      // Kick off first after-voice repeat blob in parallel with TTS.
+      // Baked-in silence covers estimated TTS duration so Morse starts clean after voice.
+      let firstAfterP = null;
+      if (cfg.listenRepeatAfter > 0) {
         const estSec = estimateTtsSec(word, cfg.voiceRate ?? 1);
-        firstRepeatP = playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, estSec + (_isIOS ? 1.5 : 0.5));
+        firstAfterP = playMorseAudioBlob(word, cfg.wpm, fwpm, state.currentTone, estSec + (_isIOS ? 2.0 : 0.5));
       }
       await speakWord(word);
       if (ls.stopRequested) break;
       try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch(e) {}
       try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
       primeAudio(0.15);
-      if (firstRepeatP) {
-        await firstRepeatP;
+      if (firstAfterP) {
+        await firstAfterP;
         if (ls.stopRequested) break;
-        for (let r = 1; r < cfg.listenRepeat; r++) {
+        for (let r = 1; r < cfg.listenRepeatAfter; r++) {
           await listenSleep(cfg.listenDelay * stdGap, ls);
           if (ls.stopRequested) break;
           await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
@@ -2516,12 +2527,13 @@ async function startListen() {
         }
       }
     } else {
-      // Voice OFF: standard gap, first morse, then listenRepeat additional plays with configurable gap between
+      // Voice OFF: first morse, then (before + after) repeats with configurable gap
+      const totalRepeat = cfg.listenRepeatBefore + cfg.listenRepeatAfter;
       await listenSleep(stdGap, ls);
       if (ls.stopRequested) break;
       await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
       if (ls.stopRequested) break;
-      for (let r = 0; r < cfg.listenRepeat; r++) {
+      for (let r = 0; r < totalRepeat; r++) {
         await listenSleep(cfg.listenDelay * stdGap, ls);
         if (ls.stopRequested) break;
         await playMorseFn(word, cfg.wpm, fwpm, state.currentTone);
