@@ -1192,6 +1192,7 @@ function renderManualContent(t) {
   S('Settings — Voice Reveal');
   B('Gender', 'Choose Woman or Man voice. The app selects the best available voice in that category from your device\'s speech synthesis engine.');
   B('Voice Speed', 'Playback rate for the spoken word (0.7× slow to 1.5× fast, in 0.1× steps). Default 1×.');
+  B('Voice Volume', 'Volume of the spoken word reveal, independent of the Morse tone. Range 1–100%.');
   B('Allow Cloud Voices', 'On iOS and macOS, enabling this allows the system to use higher-quality cloud-based voices (requires internet). When off, only locally stored voices are used — works offline and is faster.');
 
   S('Settings — Session (Practice)');
@@ -1689,15 +1690,6 @@ function renderSettingsModal(t) {
   tvRow.appendChild(tvToggle);
   sec5.appendChild(tvRow);
 
-  // CW Volume — fixed at 100%
-  sec5.appendChild(el('div', { style:{ borderTop:`1px solid ${t.border}`, margin:'14px 0' }}));
-  const cwVolRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
-  const cwVolLeft = el('div', {});
-  cwVolLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'13px', color:t.text }}, 'CW Volume'));
-  cwVolLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Morse code tone loudness'));
-  cwVolRow.appendChild(cwVolLeft);
-  cwVolRow.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'15px', fontWeight:'600', color:t.accent }}, '100%'));
-  sec5.appendChild(cwVolRow);
 
   modal.appendChild(sec5);
 
