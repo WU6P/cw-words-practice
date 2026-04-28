@@ -323,14 +323,15 @@ function _playPcmBlob(samples, sr, totalSec, useB = false) {
       if (started || done) return;       // guard: prevents the 800 ms fallback
       started = true;                    // from re-triggering play() after a
       a.removeEventListener('canplaythrough', start);  // short word already ended
-      a.volume = 1;
+      // Don't reset volume for element B — duck-ramp controls it externally.
+      if (!useB) a.volume = 1;
       const p = a.play();
       if (p && p.catch) p.catch(() => finish());
     };
     a.addEventListener('ended', finish);
     a.addEventListener('error', finish);
     a.addEventListener('canplaythrough', start, { once: true });
-    a.volume = 1;
+    if (!useB) a.volume = 1;
     try { a.pause(); } catch (e) {}
     a.src = url;
     try { a.load(); } catch (e) {}
@@ -407,6 +408,35 @@ function _killMorseAudioA() {
     try { URL.revokeObjectURL(_lastMorseUrl); } catch(e) {}
     _lastMorseUrl = null;
   }
+}
+
+// Duck-compensation volume ramp for element B.
+// iOS duck profile (observed): flat at ~25% for ~1500 ms after TTS ends,
+// then sharp recovery to 100% over ~200 ms.
+// Inverse compensation: hold B.volume=1.0 during the flat duck, then drop
+// to 0.25 as iOS snaps back — product stays ~constant throughout.
+// flatMs / rampMs are empirical; a measurement tool can refine them later.
+let _morseVolRampTimer = null;
+function _startMorseVolRamp(flatMs = 1500, rampMs = 200) {
+  if (_morseVolRampTimer) { clearInterval(_morseVolRampTimer); _morseVolRampTimer = null; }
+  if (!_morseAudioB) return;
+  _morseAudioB.volume = 1.0;
+  const t0 = Date.now();
+  _morseVolRampTimer = setInterval(() => {
+    if (!_morseAudioB) { clearInterval(_morseVolRampTimer); _morseVolRampTimer = null; return; }
+    const elapsed = Date.now() - t0;
+    if (elapsed < flatMs) {
+      _morseAudioB.volume = 1.0;
+    } else {
+      const t = Math.min(1.0, (elapsed - flatMs) / rampMs);
+      _morseAudioB.volume = Math.max(0.25, 1.0 - 0.75 * t);
+      if (t >= 1.0) { clearInterval(_morseVolRampTimer); _morseVolRampTimer = null; }
+    }
+  }, 16);
+}
+function _stopMorseVolRamp() {
+  if (_morseVolRampTimer) { clearInterval(_morseVolRampTimer); _morseVolRampTimer = null; }
+  if (_morseAudioB) _morseAudioB.volume = 1.0;
 }
 
 function playListenBeepBlob(charWpm, frequency) {
@@ -2531,6 +2561,10 @@ async function startListen() {
         // starts into a clean session. A's 0.5 s lead silence covers its cold-ramp
         // on the next word's beep / pre-voice Morse.
         _killMorseAudioA();
+        // Start duck-compensation ramp: B.volume holds at 1.0 while iOS duck is
+        // flat (~1500 ms), then drops to 0.25 as iOS snaps back (~200 ms), keeping
+        // perceived volume constant throughout all post-voice repeats.
+        _startMorseVolRamp();
       } else {
         try { const ctx = getCtx(); if (ctx.state === 'suspended') await ctx.resume(); } catch(e) {}
         primeAudio(0.15);
@@ -2575,6 +2609,7 @@ function stopListen() {
   if (ls._sleepResolve) { ls._sleepResolve(); ls._sleepResolve = null; }
   stopKeepAlive();
   stopSpeechHeartbeat();
+  _stopMorseVolRamp();
   releaseWakeLock();
   setupMediaSession(false);
   try { _silentAudio && _silentAudio.pause(); } catch (e) {}
