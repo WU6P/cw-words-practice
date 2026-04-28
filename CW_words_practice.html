@@ -1610,7 +1610,7 @@ function renderSettingsModal(t) {
     if (cfg.screenReaderMode) announceTTS('Screen reader mode on.');
   }, 'Screen Reader Mode'));
   secSR.appendChild(srRow);
-  modal.appendChild(secSR);
+  // secSR is appended just above Theme — see below
 
   // Tone — frequency + variation in one box
   const sec5 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
@@ -1986,6 +1986,9 @@ function renderSettingsModal(t) {
     secMissed.appendChild(clearRow);
   }
   modal.appendChild(secMissed);
+
+  // Screen Reader Mode — just above Theme
+  modal.appendChild(secSR);
 
   // Theme picker
   const sec6 = el('div', { style:{ marginBottom:'8px' }});
@@ -2709,9 +2712,25 @@ async function doPlay() {
 // user can pick by number key (1–4) without seeing the screen.
 function speakChoicesIfSR() {
   if (!state.cfg.screenReaderMode || !state.q) return;
-  const list = state.q.choices.map((c, i) => `${i + 1}. ${c}`).join('. ');
-  // Tiny delay so the Morse-end audio settles before speech begins
-  setTimeout(() => announceTTS(`Choose: ${list}.`), 300);
+  if (!window.speechSynthesis) return;
+  // Speak "Choose" then each choice with a 300 ms gap between utterances
+  const items = ['Choose:', ...state.q.choices.map((c, i) => `${i + 1}. ${c}`)];
+  let delay = 300;
+  items.forEach(text => {
+    setTimeout(() => {
+      // Bail if the user already answered or moved to next question
+      if (state.playState !== 'ready') return;
+      try {
+        const utt = new SpeechSynthesisUtterance(text);
+        utt.rate = state.cfg.voiceRate ?? 1;
+        utt.volume = (state.cfg.voiceVolume ?? 75) / 100;
+        const v = getPreferredVoice();
+        if (v) utt.voice = v;
+        window.speechSynthesis.speak(utt);
+      } catch (e) {}
+    }, delay);
+    delay += 300;
+  });
 }
 
 function _showWave() {
@@ -2822,6 +2841,8 @@ async function doPlayWord(word) {
     _hideWave();
     const nb = document.getElementById('next-btn');
     if (nb) { nb.disabled = false; nb.style.background = T().accent; nb.style.color = T().accentText; nb.style.cursor = 'pointer'; }
+    // Re-read choices after replay so blind users hear the options again
+    if (state.playState === 'ready') speakChoicesIfSR();
   } else if (state.playState === 'idle') {
     // handleNext() fired while audio was playing; auto-play was skipped — retry it now
     doPlay();
