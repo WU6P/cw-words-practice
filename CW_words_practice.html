@@ -3029,6 +3029,9 @@ function transitionToReady() {
   }
   const cardEl = document.getElementById('cw-card');
   if (cardEl) { cardEl.style.cursor = 'pointer'; cardEl.onclick = doReplay; }
+  // Re-focus the persistent KB input so physical-keyboard users don't lose focus
+  // (also helps Android; on iOS this is async so doReplay() handles it instead)
+  if (state.cfg.keyboardInput) { const ki = document.getElementById('_kb-session-input'); if (ki) ki.focus(); }
 }
 
 function transitionToPlaying() {
@@ -3075,7 +3078,13 @@ function transitionToPlaying() {
   if (cardEl) cardEl.style.cursor = 'default';
 }
 
-function doReplay() { return doPlayWord(state.q.correct); }
+function doReplay() {
+  // Re-focus the persistent KB input within this gesture context so iOS
+  // shows the keyboard again after the replay button tap stole focus.
+  const ki = document.getElementById('_kb-session-input');
+  if (ki) ki.focus();
+  return doPlayWord(state.q.correct);
+}
 
 function _buildKbInputBox(t, active) {
   const wrap = el('div', {});
