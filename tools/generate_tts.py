@@ -30,6 +30,7 @@ MANIFEST   = SCRIPT_DIR.parent / "audio" / "manifest.json"
 
 SAY_VOICE  = "Samantha"
 SAY_RATE   = 176          # "words per minute" for say; ~1.1× of Samantha's default 160 wpm
+AAC_BITRATE = "32000"     # bps; mono speech — 32k mono ≈ half the size of 64k stereo
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Fixed phrases always passed to playWordAudio() ──────────────────────────
@@ -44,6 +45,10 @@ PROSIGN_SPOKEN = {
 }
 
 # ── Special-char entries → spoken form ───────────────────────────────────────
+# Keys are lowercased (matched against raw.lower()).
+# Single uppercase letters must map to lowercase so `say` says "eye" not "capital i".
+# Multi-letter abbreviations spelled out use spaces so `say` reads each letter.
+# All-digit slugs are handled generically in spoken_form().
 SPECIAL_SPOKEN = {
     ".":    "period",
     "/":    "slash",
@@ -51,6 +56,9 @@ SPECIAL_SPOKEN = {
     "hw?":  "hw",
     "qrl?": "qrl",
     "qrz?": "qrz",
+    "i":    "i",
+    "r":    "r",
+    "xyl":  "x y l",
 }
 
 
@@ -69,6 +77,9 @@ def spoken_form(raw: str) -> str:
         return PROSIGN_SPOKEN[low]
     if low in SPECIAL_SPOKEN:
         return SPECIAL_SPOKEN[low]
+    # All-digit entries: spell each digit individually (73 → "7 3", 359 → "3 5 9")
+    if re.match(r'^\d+$', low):
+        return ' '.join(low)
     # Strip angle brackets if present but not in map
     cleaned = re.sub(r"[<>?]", "", raw).strip()
     return cleaned or raw
@@ -124,7 +135,7 @@ def generate_one(raw: str, spoken: str, force: bool = False) -> str | None:
 
         result = subprocess.run(
             ["afconvert", aiff_path, str(out_path),
-             "-d", "aac", "-f", "m4af", "-b", "64000"],
+             "-d", "aac", "-f", "m4af", "-b", AAC_BITRATE, "-c", "1"],
             capture_output=True, text=True
         )
         if result.returncode != 0:
