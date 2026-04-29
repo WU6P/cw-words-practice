@@ -745,6 +745,7 @@ const state = {
   tweaks: { theme: _saved.theme ?? 'clean', frequency: _saved.frequency ?? 550, toneVariation: _saved.toneVariation ?? false },
   _missedSessionPool: null,  // snapshot of missed words at session start
   kbTyped: '',               // keyboard-input mode: current typed text
+  _advanceTimer: null,       // handle for the auto-advance setTimeout after correct answer
   playing: false,            // mutex
   replaying: false,          // silent replay in progress
   autoPlayTimer: null,
@@ -2551,6 +2552,9 @@ function playTestR() {
 
 function goSettings() {
   clearTimeout(state.autoPlayTimer);
+  clearTimeout(state._advanceTimer);
+  const ki = document.getElementById('_kb-session-input');
+  if (ki) ki.remove();
   const ls = state.listenState;
   if (ls.active) {
     ls.stopRequested = true;
@@ -2593,6 +2597,36 @@ async function startPractice() {
   state.score = { c:0, t:0 };
   state.sessionLog = [];
   state._summaryAnnounced = false;
+
+  // KB input mode: create and focus a persistent hidden input BEFORE any await so
+  // iOS sees the focus() as originating from the user's button tap (gesture context).
+  // This keeps the keyboard visible for the entire session without requiring a tap.
+  if (state.cfg.keyboardInput) {
+    const old = document.getElementById('_kb-session-input');
+    if (old) old.remove();
+    const ki = document.createElement('input');
+    ki.id = '_kb-session-input';
+    ki.type = 'text';
+    ki.setAttribute('autocomplete', 'off');
+    ki.setAttribute('autocorrect', 'off');
+    ki.setAttribute('autocapitalize', 'none');
+    ki.setAttribute('spellcheck', 'false');
+    Object.assign(ki.style, {
+      position:'fixed', top:'-200px', left:'0',
+      width:'1px', height:'1px', opacity:'0.01',
+      border:'none', outline:'none', background:'transparent',
+      fontSize:'16px',  // ≥16px prevents iOS auto-zoom
+    });
+    ki.addEventListener('input', e => {
+      const filtered = e.target.value.replace(/[^a-zA-Z0-9\-\/]/g, '');
+      state.kbTyped = filtered.toLowerCase();
+      ki.value = state.kbTyped.toUpperCase();
+      updateKbDisplay();
+    });
+    document.body.appendChild(ki);
+    ki.focus(); // still in gesture context → iOS shows keyboard
+  }
+
   render();                     // immediate screen switch on first tap
   warmUpSpeechSync();           // MUST be called synchronously before any await
   await unlockAudio();          // iOS audio unlock — must stay within gesture handler
@@ -3053,36 +3087,17 @@ function _buildKbInputBox(t, active) {
     opacity: active ? '1' : '0.4',
   }});
   if (active) {
-    const inp = el('input', {
-      id: 'kb-real-input',
-      type: 'text',
-      autocomplete: 'off',
-      autocorrect: 'off',
-      autocapitalize: 'none',
-      spellcheck: 'false',
-      placeholder: 'tap to type…',
-      style:{
-        width:'100%', background:'transparent', border:'none', outline:'none',
-        fontFamily:t.mono, fontSize:'24px', fontWeight:'700', letterSpacing:'4px',
-        textAlign:'center', color:t.text, caretColor:t.accent,
-      },
-    });
-    // Only handle the `input` event — for iOS soft-keyboard characters that arrive
-    // without a matching keydown (IME / composition). Physical-keyboard keys are
-    // intercepted by the document keydown handler which calls preventDefault(), so
-    // they never produce an `input` event and won't be double-counted.
-    inp.addEventListener('input', e => {
-      const filtered = e.target.value.replace(/[^a-zA-Z0-9\-\/]/g, '');
-      state.kbTyped = filtered.toLowerCase();
-      e.target.value = state.kbTyped.toUpperCase();
-    });
-    // Focus synchronously so physical-keyboard users can type immediately.
-    // For iOS: async focus silently positions the cursor but the keyboard only
-    // appears on a touch event. The click handler below calls focus() inside
-    // the browser's gesture context on every tap, which reliably shows the keyboard.
-    box.appendChild(inp);
-    inp.focus();
-    box.addEventListener('click', () => inp.focus());
+    // Display only — the actual keyboard input is routed through the persistent
+    // hidden #_kb-session-input (focused in startPractice within gesture context).
+    const row = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', width:'100%' }});
+    row.appendChild(el('span', { id:'kb-typed-text', style:{
+      fontFamily:t.mono, fontSize:'24px', fontWeight:'700', letterSpacing:'4px', color:t.text,
+    }}, state.kbTyped.toUpperCase() || ''));
+    row.appendChild(el('span', { 'aria-hidden':'true', style:{
+      fontFamily:t.mono, fontSize:'24px', fontWeight:'300', color:t.accent,
+      animation:'blink 1s step-end infinite', marginLeft:'2px',
+    }}, '|'));
+    box.appendChild(row);
   } else {
     box.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'24px', fontWeight:'300', color:t.textMuted }}, '|'));
   }
@@ -3096,8 +3111,8 @@ function _buildKbInputBox(t, active) {
 }
 
 function updateKbDisplay() {
-  const inp = document.getElementById('kb-real-input');
-  if (inp) inp.value = state.kbTyped.toUpperCase();
+  const span = document.getElementById('kb-typed-text');
+  if (span) span.textContent = state.kbTyped.toUpperCase();
 }
 
 function handleAnswer(choice) {
@@ -3115,8 +3130,12 @@ function handleAnswer(choice) {
   const voice = state.cfg.listenVoice;
 
   function advance() {
-    if (sessionDone) { stopSpeechHeartbeat(); updateMissedWords(state.sessionLog); state.screen = 'summary'; render(); }
-    else handleNext();
+    if (state.playState !== 'answered') return; // double-advance guard
+    if (sessionDone) {
+      const ki = document.getElementById('_kb-session-input');
+      if (ki) ki.remove();
+      stopSpeechHeartbeat(); updateMissedWords(state.sessionLog); state.screen = 'summary'; render();
+    } else { handleNext(); }
   }
 
   if (ok) {
@@ -3126,7 +3145,7 @@ function handleAnswer(choice) {
     } else {
       if (voice) speakWord(choice);
       if (sr) setTimeout(() => announceTTS(`Correct. ${state.score.c} of ${state.score.t}.`), 700);
-      setTimeout(advance, sr ? 2400 : 1100);
+      state._advanceTimer = setTimeout(advance, sr ? 2400 : 1100);
     }
   } else {
     if (kb && voice) {
@@ -3155,6 +3174,8 @@ function handleNext() {
   state.q = makeQuestion(state.cfg.listKey);
   state.chosen = null;
   state.kbTyped = '';
+  const _ki = document.getElementById('_kb-session-input');
+  if (_ki) { _ki.value = ''; _ki.focus(); }
   if (state.playing) {
     // Replay is in progress — set idle so doPlayWord picks it up after audio
     state.playState = 'idle';
@@ -3184,7 +3205,17 @@ document.addEventListener('keydown', e => {
   const kbMode = state.cfg.keyboardInput;
 
   if (state.playState === 'answered') {
-    if (key === 'Enter' && !state.playing)        { e.preventDefault(); handleNext(); return; }
+    if (key === 'Enter' && !state.playing) {
+      e.preventDefault();
+      clearTimeout(state._advanceTimer);
+      const done = state.sessionLog.length >= state.cfg.sessionSize;
+      if (done) {
+        const ki = document.getElementById('_kb-session-input');
+        if (ki) ki.remove();
+        stopSpeechHeartbeat(); updateMissedWords(state.sessionLog); state.screen = 'summary'; render();
+      } else { handleNext(); }
+      return;
+    }
     if (key === ' ' || key.toLowerCase() === 'r') { e.preventDefault(); doReplay(); return; }
   }
   if (state.playState === 'idle' || state.playState === 'ready') {
