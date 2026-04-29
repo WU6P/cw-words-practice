@@ -3057,25 +3057,26 @@ function _buildKbInputBox(t, active) {
       autocorrect: 'off',
       autocapitalize: 'none',
       spellcheck: 'false',
-      placeholder: 'tap here to type…',
-      value: state.kbTyped.toUpperCase(),
+      placeholder: 'tap to type…',
       style:{
         width:'100%', background:'transparent', border:'none', outline:'none',
         fontFamily:t.mono, fontSize:'24px', fontWeight:'700', letterSpacing:'4px',
         textAlign:'center', color:t.text, caretColor:t.accent,
       },
     });
+    // Only handle the `input` event — for iOS soft-keyboard characters that arrive
+    // without a matching keydown (IME / composition). Physical-keyboard keys are
+    // intercepted by the document keydown handler which calls preventDefault(), so
+    // they never produce an `input` event and won't be double-counted.
     inp.addEventListener('input', e => {
       const filtered = e.target.value.replace(/[^a-zA-Z0-9\-\/]/g, '');
       state.kbTyped = filtered.toLowerCase();
       e.target.value = state.kbTyped.toUpperCase();
     });
-    inp.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); const typed = state.kbTyped.trim(); handleAnswer(typed.length > 0 ? typed : ''); }
-      if (e.key === ' ' || e.key.toLowerCase() === 'r') { e.preventDefault(); e.stopPropagation(); doPlay(); }
-    });
+    // No auto-focus: programmatic focus from async code silently focuses the
+    // element on iOS but suppresses the keyboard. Let the user's own tap be the
+    // first focus event so iOS shows the keyboard naturally.
     box.appendChild(inp);
-    setTimeout(() => inp.focus(), 0);
   } else {
     box.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'24px', fontWeight:'300', color:t.textMuted }}, '|'));
   }
@@ -3171,14 +3172,29 @@ document.addEventListener('keydown', e => {
   }
   if (state.playState === 'ready') {
     if (kbMode) {
-      // Space/R replay already handled above; everything else goes to the real <input>.
-      // Focus it if a physical key was pressed and it isn't focused yet.
-      const inp = document.getElementById('kb-real-input');
-      if (inp && document.activeElement !== inp) {
-        inp.focus();
-        if (key === 'Backspace') e.preventDefault(); // prevent browser back-navigation
+      // All key handling lives here. We call preventDefault() so the character is
+      // NOT inserted into the <input> by the browser — we do it manually and then
+      // call updateKbDisplay() to sync the input's value. This also works when the
+      // input IS focused: preventDefault() at the document level still cancels the
+      // default action, so there's no double-insertion.
+      if (key === 'Enter') {
+        e.preventDefault();
+        const typed = state.kbTyped.trim();
+        handleAnswer(typed.length > 0 ? typed : '');
+        return;
       }
-      // Enter/letters/backspace are handled by the input's own keydown+input listeners.
+      if (key === 'Backspace') {
+        e.preventDefault();
+        state.kbTyped = state.kbTyped.slice(0, -1);
+        updateKbDisplay();
+        return;
+      }
+      if (key.length === 1 && /[a-zA-Z0-9\-\/]/.test(key)) {
+        e.preventDefault();
+        state.kbTyped += key.toLowerCase();
+        updateKbDisplay();
+        return;
+      }
     } else {
       // Button mode: number keys select answer
       const n = parseInt(key);
