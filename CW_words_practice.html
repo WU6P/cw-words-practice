@@ -51,6 +51,7 @@ body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-ins
 @keyframes pulse    { 0%,100%{transform:scaleY(0.3)} 50%{transform:scaleY(1)} }
 @keyframes fadeIn   { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
 @keyframes slideUp  { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+@keyframes blink    { 0%,100%{opacity:1} 50%{opacity:0} }
 .bar1{animation:pulse 0.7s ease-in-out infinite;animation-delay:0s}
 .bar2{animation:pulse 0.7s ease-in-out infinite;animation-delay:0.1s}
 .bar3{animation:pulse 0.7s ease-in-out infinite;animation-delay:0.2s}
@@ -731,6 +732,7 @@ const state = {
     allowCloudVoice:  _saved.allowCloudVoice  ?? false,
     saveMissedWords:  _saved.saveMissedWords  ?? true,
     screenReaderMode: _saved.screenReaderMode ?? false,
+    keyboardInput:    _saved.keyboardInput    ?? false,
   },
   settingsOpen: false,
   helpOpen: null,          // null | 'manual' | 'contact' | 'about'
@@ -742,6 +744,7 @@ const state = {
   sessionLog: [],
   tweaks: { theme: _saved.theme ?? 'clean', frequency: _saved.frequency ?? 550, toneVariation: _saved.toneVariation ?? false },
   _missedSessionPool: null,  // snapshot of missed words at session start
+  kbTyped: '',               // keyboard-input mode: current typed text
   playing: false,            // mutex
   replaying: false,          // silent replay in progress
   autoPlayTimer: null,
@@ -1181,6 +1184,16 @@ function renderManualContent(t) {
   B('Progress', 'Correct and total answers are tracked across the session. Accuracy is shown in the header and on the summary screen.');
   B('Replay', 'Tap the waveform card area to replay the current word at any time before answering.');
 
+  S('Practice w/ Keyboard Input (v2.5)');
+  P('Keyboard Input mode replaces the multiple-choice buttons with a free-text entry field. Enable it in Settings → Session → Practice w/ Keyboard Input.');
+  P('After the Morse plays, type what you heard using your keyboard (or the on-screen keyboard on touch devices). The display shows your input as you type, in large monospace letters.');
+  B('Submitting', 'Press Enter to submit your answer. Matching is case-insensitive.');
+  B('Editing', 'Press Backspace to delete the last character. You can correct your input before pressing Enter.');
+  B('Replay', 'Press Space or R to replay the Morse at any time before submitting. Enter submits; Space/R always replays.');
+  B('Correct answer', 'The display turns green and shows "✓ Correct!" If Voice Reveal is on, the word is spoken aloud.');
+  B('Wrong answer', 'Two rows appear: "You typed:" (in red) and "Correct:" (in green), so you can compare them immediately. If Voice Reveal is on, the app speaks your typed word then the correct word, then replays the Morse.');
+  B('Session end', 'The summary screen shows your score. Press Enter to play again or Esc to return Home.');
+
   S('Settings — Tone');
   B('Frequency', 'Sidetone pitch in Hz (300–1000 Hz). Default 550 Hz. Match your preferred receiver pitch.');
   B('Tone Variation', 'When on, each word is sent on a slightly different pitch (±up to 200 Hz random offset).');
@@ -1296,7 +1309,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '2.3');
+  infoRow('Version', '2.5');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
@@ -1784,6 +1797,16 @@ function renderSettingsModal(t) {
   }
   if (!cfg.listenMode) {
     const prExtra = el('div', { style:{ marginTop:'16px', paddingTop:'16px', borderTop:`1px solid ${t.border}` }});
+
+    // Keyboard Input toggle
+    const kbRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'16px', paddingBottom:'16px', borderBottom:`1px solid ${t.border}` }});
+    const kbInfo = el('div', { style:{ flex:'1', marginRight:'12px' }});
+    kbInfo.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, 'Practice w/ Keyboard Input'));
+    kbInfo.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Type the word instead of selecting from choices'));
+    kbRow.appendChild(kbInfo);
+    kbRow.appendChild(renderToggle(t, cfg.keyboardInput, () => { cfg.keyboardInput = !cfg.keyboardInput; saveTweaks(); render(); }, 'Practice w/ Keyboard Input'));
+    prExtra.appendChild(kbRow);
+
     prExtra.appendChild(el('label', { style:{ ...lblStyle, marginBottom:'8px' }}, 'Questions per Session'));
     const sizeRow = el('div', { role:'radiogroup', 'aria-label':'Questions per Session', style:{ display:'flex', gap:'8px' }});
     [10, 20, 50, 100].forEach(n => {
@@ -2152,7 +2175,7 @@ function renderPractice(t) {
   const statusLine = el('div', { id:'cw-status', 'aria-live':'polite', 'aria-atomic':'true', style:{ fontSize:'13px', color:t.textMuted, minHeight:'18px' }});
   if (playState === 'idle')    statusLine.textContent = 'Loading…';
   if (playState === 'playing') { statusLine.textContent = 'Listening…'; statusLine.style.color = t.accent; statusLine.style.fontWeight = '500'; }
-  if (playState === 'ready')   statusLine.textContent = 'Select the word you heard';
+  if (playState === 'ready')   statusLine.textContent = state.cfg.keyboardInput ? 'Type the word you heard…' : 'Select the word you heard';
   if (answered && chosen === q.correct) {
     statusLine.textContent = '✓ Correct!';
     statusLine.style.color = t.correct;
@@ -2197,55 +2220,116 @@ function renderPractice(t) {
   }
   wrap.appendChild(card);
 
-  // Choice grid
-  const grid = el('div', { id:'cw-choices', style:{
-    display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px',
-    opacity: (canAnswer || answered) ? '1' : '0',
-    pointerEvents: (canAnswer || answered) ? 'auto' : 'none',
-    transition:'opacity 0.3s ease',
-  }});
-  q.choices.forEach((ch, idx) => {
-    let bg = t.bgCard, border = t.border, color = t.text, fw = '700', mark = '';
-    if (answered) {
-      if (ch === q.correct)    { bg = t.correctDim; border = t.correct; color = t.correct; fw = '700'; mark = '✓'; }
-      else if (ch === chosen)  { bg = t.wrongDim;   border = t.wrong;   color = t.wrong;   fw = '700'; mark = '✗'; }
-      else                     { color = t.textMuted; }
+  if (state.cfg.keyboardInput) {
+    // Keyboard input area — replaces choice grid
+    const kbArea = el('div', { id:'cw-kb-display', style:{ marginTop:'4px' }});
+    if (!answered) {
+      // Input display box
+      const inputBox = el('div', { style:{
+        background:t.bgCard, border:`2px solid ${canAnswer ? t.accent : t.border}`,
+        borderRadius: t.scanlines ? '2px' : '12px', padding:'18px 20px',
+        textAlign:'center', minHeight:'64px', display:'flex', alignItems:'center', justifyContent:'center',
+        transition:'border-color 0.2s',
+        opacity: canAnswer ? '1' : '0.4',
+      }});
+      const typedSpan = el('span', { id:'kb-typed-text', style:{
+        fontFamily:t.mono, fontSize:'24px', fontWeight:'700', letterSpacing:'4px', color:t.text,
+      }}, state.kbTyped.toUpperCase());
+      const cursor = el('span', { id:'kb-cursor', 'aria-hidden':'true', style:{
+        fontFamily:t.mono, fontSize:'24px', fontWeight:'300', color:t.accent,
+        animation: canAnswer ? 'blink 1s step-end infinite' : 'none', marginLeft:'2px',
+      }}, '|');
+      inputBox.appendChild(typedSpan);
+      if (canAnswer) inputBox.appendChild(cursor);
+      kbArea.appendChild(inputBox);
+      if (canAnswer) {
+        kbArea.appendChild(el('div', { style:{
+          textAlign:'center', fontSize:'11px', color:t.textMuted, marginTop:'8px', fontFamily:t.mono, letterSpacing:'1px',
+        }}, 'Enter to submit · Backspace to delete · Space to replay'));
+      }
+    } else {
+      // Result display
+      const isOk = chosen === q.correct;
+      if (isOk) {
+        const okBox = el('div', { style:{
+          background:t.correctDim, border:`2px solid ${t.correct}`, borderRadius: t.scanlines ? '2px' : '12px',
+          padding:'16px 20px', textAlign:'center',
+        }});
+        okBox.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'24px', fontWeight:'700', letterSpacing:'4px', color:t.correct }}, chosen.toUpperCase()));
+        okBox.appendChild(el('div', { style:{ fontSize:'13px', color:t.correct, marginTop:'4px', fontWeight:'600' }}, '✓ Correct!'));
+        kbArea.appendChild(okBox);
+      } else {
+        const wrongBox = el('div', { style:{
+          background:t.bgCard, border:`1px solid ${t.border}`, borderRadius: t.scanlines ? '2px' : '12px',
+          padding:'16px 20px', display:'flex', flexDirection:'column', gap:'10px',
+        }});
+        // User's wrong input
+        const yourRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'10px' }});
+        yourRow.appendChild(el('span', { style:{ fontSize:'11px', fontWeight:'700', color:t.wrong, letterSpacing:'1px', textTransform:'uppercase', minWidth:'70px' }}, 'You typed:'));
+        yourRow.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'20px', fontWeight:'700', letterSpacing:'3px', color:t.wrong }}, (chosen || '(empty)').toUpperCase()));
+        yourRow.appendChild(el('span', { style:{ fontSize:'16px', color:t.wrong }}, '✗'));
+        wrongBox.appendChild(yourRow);
+        // Correct word
+        const corrRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'10px', paddingTop:'10px', borderTop:`1px solid ${t.border}` }});
+        corrRow.appendChild(el('span', { style:{ fontSize:'11px', fontWeight:'700', color:t.correct, letterSpacing:'1px', textTransform:'uppercase', minWidth:'70px' }}, 'Correct:'));
+        corrRow.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'20px', fontWeight:'700', letterSpacing:'3px', color:t.correct }}, q.correct.toUpperCase()));
+        corrRow.appendChild(el('span', { style:{ fontSize:'16px', color:t.correct }}, '✓'));
+        wrongBox.appendChild(corrRow);
+        kbArea.appendChild(wrongBox);
+      }
     }
-    const btn = el('button', {
-      className: (canAnswer || answered) ? 'btn-choice-hover' : '',
-      'data-word': ch,
-      'aria-label': `Choice ${idx + 1}: ${ch}${answered && ch === q.correct ? ' — correct' : answered && ch === chosen ? ' — your answer, incorrect' : ''}`,
-      style:{
-        position:'relative',
-        padding:'12px 8px', border:`2px solid ${border}`,
-        borderRadius: t.scanlines ? '2px' : '10px',
-        background:bg, color, fontSize:'15px', fontWeight:fw,
-        fontFamily:t.mono, letterSpacing:'2px', textAlign:'center', transition:'all 0.15s',
-        opacity: (!canAnswer && !answered) ? '0.4' : '1',
-        boxShadow: (answered && ch === q.correct && t.scanlines) ? `0 0 8px ${t.correct}88` : 'none',
-        cursor: (canAnswer || answered) ? 'pointer' : 'default',
-    }}, ch.toUpperCase());
-    if (mark) {
+    wrap.appendChild(kbArea);
+  } else {
+    // Choice grid (original button mode)
+    const grid = el('div', { id:'cw-choices', style:{
+      display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px',
+      opacity: (canAnswer || answered) ? '1' : '0',
+      pointerEvents: (canAnswer || answered) ? 'auto' : 'none',
+      transition:'opacity 0.3s ease',
+    }});
+    q.choices.forEach((ch, idx) => {
+      let bg = t.bgCard, border = t.border, color = t.text, fw = '700', mark = '';
+      if (answered) {
+        if (ch === q.correct)    { bg = t.correctDim; border = t.correct; color = t.correct; fw = '700'; mark = '✓'; }
+        else if (ch === chosen)  { bg = t.wrongDim;   border = t.wrong;   color = t.wrong;   fw = '700'; mark = '✗'; }
+        else                     { color = t.textMuted; }
+      }
+      const btn = el('button', {
+        className: (canAnswer || answered) ? 'btn-choice-hover' : '',
+        'data-word': ch,
+        'aria-label': `Choice ${idx + 1}: ${ch}${answered && ch === q.correct ? ' — correct' : answered && ch === chosen ? ' — your answer, incorrect' : ''}`,
+        style:{
+          position:'relative',
+          padding:'12px 8px', border:`2px solid ${border}`,
+          borderRadius: t.scanlines ? '2px' : '10px',
+          background:bg, color, fontSize:'15px', fontWeight:fw,
+          fontFamily:t.mono, letterSpacing:'2px', textAlign:'center', transition:'all 0.15s',
+          opacity: (!canAnswer && !answered) ? '0.4' : '1',
+          boxShadow: (answered && ch === q.correct && t.scanlines) ? `0 0 8px ${t.correct}88` : 'none',
+          cursor: (canAnswer || answered) ? 'pointer' : 'default',
+      }}, ch.toUpperCase());
+      if (mark) {
+        btn.appendChild(el('span', { 'aria-hidden':'true', style:{
+          position:'absolute', top:'3px', right:'6px',
+          fontSize:'13px', fontWeight:'800', letterSpacing:'0',
+          color: mark === '✓' ? t.correct : t.wrong,
+        }}, mark));
+      }
       btn.appendChild(el('span', { 'aria-hidden':'true', style:{
-        position:'absolute', top:'3px', right:'6px',
-        fontSize:'13px', fontWeight:'800', letterSpacing:'0',
-        color: mark === '✓' ? t.correct : t.wrong,
-      }}, mark));
-    }
-    btn.appendChild(el('span', { 'aria-hidden':'true', style:{
-      position:'absolute', bottom:'3px', right:'6px',
-      fontSize:'10px', fontWeight:'600', letterSpacing:'0', lineHeight:'1',
-      color: answered ? (ch === q.correct ? t.correct : ch === chosen ? t.wrong : t.border) : t.border,
-      opacity: (!canAnswer && !answered) ? '0.4' : '1',
-    }}, String(idx + 1)));
-    if (canAnswer) {
-      btn.addEventListener('click', () => handleAnswer(ch));
-    } else if (answered) {
-      btn.addEventListener('click', e => { e.stopPropagation(); doPlayWord(ch); });
-    }
-    grid.appendChild(btn);
-  });
-  wrap.appendChild(grid);
+        position:'absolute', bottom:'3px', right:'6px',
+        fontSize:'10px', fontWeight:'600', letterSpacing:'0', lineHeight:'1',
+        color: answered ? (ch === q.correct ? t.correct : ch === chosen ? t.wrong : t.border) : t.border,
+        opacity: (!canAnswer && !answered) ? '0.4' : '1',
+      }}, String(idx + 1)));
+      if (canAnswer) {
+        btn.addEventListener('click', () => handleAnswer(ch));
+      } else if (answered) {
+        btn.addEventListener('click', e => { e.stopPropagation(); doPlayWord(ch); });
+      }
+      grid.appendChild(btn);
+    });
+    wrap.appendChild(grid);
+  }
 
   return wrap;
 }
@@ -2355,6 +2439,12 @@ function renderSummary(t) {
   actions.appendChild(settingsBtn);
   actions.appendChild(againBtn);
   wrap.appendChild(actions);
+
+  // Keyboard shortcut hint
+  wrap.appendChild(el('div', { style:{
+    textAlign:'center', fontSize:'11px', color:t.textMuted, marginTop:'10px',
+    fontFamily:t.mono, letterSpacing:'1px',
+  }}, 'Esc → Home  ·  Enter → Play Again'));
 
   // Spoken summary — fire once per session, not on every re-render of this screen
   if (!state._summaryAnnounced) {
@@ -2519,6 +2609,7 @@ async function startPractice() {
   }
   state.q = makeQuestion(state.cfg.listKey);
   state.chosen = null;
+  state.kbTyped = '';
   state.screen = 'practice';
   state.playState = 'playing';
   state.score = { c:0, t:0 };
@@ -2774,29 +2865,66 @@ function transitionToAnswered(choice) {
   const s = document.getElementById('cw-status');
   if (s) {
     if (ok) { s.textContent = '✓ Correct!'; s.style.color = t.correct; s.style.fontWeight = '700'; s.style.fontSize = '18px'; }
-    else { s.textContent = ''; }
+    else {
+      if (state.cfg.keyboardInput) { s.textContent = '✗ Incorrect!'; s.style.color = t.wrong; s.style.fontWeight = '700'; s.style.fontSize = '18px'; }
+      else { s.textContent = ''; }
+    }
   }
   // Screen-reader-only announcement (visible reveal section also shows the word)
   if (ok) announce(`Correct. Score ${state.score.c} of ${state.score.t}.`);
   else    announce(`Incorrect. The answer is ${q.correct}. Score ${state.score.c} of ${state.score.t}.`);
   if (!ok && s) s.insertAdjacentElement('afterend', makeWrongActions(t));
-  const g = document.getElementById('cw-choices');
-  if (g) Array.from(g.querySelectorAll('button')).forEach(btn => {
-    const w = btn.dataset.word;
-    let mark = '';
-    if (w === q.correct)   { btn.style.background = t.correctDim; btn.style.borderColor = t.correct; btn.style.color = t.correct; if (t.scanlines) btn.style.boxShadow = `0 0 8px ${t.correct}88`; mark = '✓'; }
-    else if (w === choice) { btn.style.background = t.wrongDim;   btn.style.borderColor = t.wrong;   btn.style.color = t.wrong; mark = '✗'; }
-    else                   { btn.style.color = t.textMuted; }
-    if (mark) {
-      btn.style.position = 'relative';
-      btn.appendChild(el('span', { 'aria-hidden':'true', style:{
-        position:'absolute', top:'3px', right:'6px',
-        fontSize:'13px', fontWeight:'800', letterSpacing:'0',
-        color: mark === '✓' ? t.correct : t.wrong,
-      }}, mark));
+
+  if (state.cfg.keyboardInput) {
+    // Update the keyboard input display in-place
+    const kbDiv = document.getElementById('cw-kb-display');
+    if (kbDiv) {
+      kbDiv.innerHTML = '';
+      if (ok) {
+        const okBox = el('div', { style:{
+          background:t.correctDim, border:`2px solid ${t.correct}`, borderRadius: t.scanlines ? '2px' : '12px',
+          padding:'16px 20px', textAlign:'center',
+        }});
+        okBox.appendChild(el('div', { style:{ fontFamily:t.mono, fontSize:'24px', fontWeight:'700', letterSpacing:'4px', color:t.correct }}, choice.toUpperCase()));
+        okBox.appendChild(el('div', { style:{ fontSize:'13px', color:t.correct, marginTop:'4px', fontWeight:'600' }}, '✓ Correct!'));
+        kbDiv.appendChild(okBox);
+      } else {
+        const wrongBox = el('div', { style:{
+          background:t.bgCard, border:`1px solid ${t.border}`, borderRadius: t.scanlines ? '2px' : '12px',
+          padding:'16px 20px', display:'flex', flexDirection:'column', gap:'10px',
+        }});
+        const yourRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'10px' }});
+        yourRow.appendChild(el('span', { style:{ fontSize:'11px', fontWeight:'700', color:t.wrong, letterSpacing:'1px', textTransform:'uppercase', minWidth:'70px' }}, 'You typed:'));
+        yourRow.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'20px', fontWeight:'700', letterSpacing:'3px', color:t.wrong }}, (choice || '(empty)').toUpperCase()));
+        yourRow.appendChild(el('span', { style:{ fontSize:'16px', color:t.wrong }}, '✗'));
+        wrongBox.appendChild(yourRow);
+        const corrRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'10px', paddingTop:'10px', borderTop:`1px solid ${t.border}` }});
+        corrRow.appendChild(el('span', { style:{ fontSize:'11px', fontWeight:'700', color:t.correct, letterSpacing:'1px', textTransform:'uppercase', minWidth:'70px' }}, 'Correct:'));
+        corrRow.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'20px', fontWeight:'700', letterSpacing:'3px', color:t.correct }}, q.correct.toUpperCase()));
+        corrRow.appendChild(el('span', { style:{ fontSize:'16px', color:t.correct }}, '✓'));
+        wrongBox.appendChild(corrRow);
+        kbDiv.appendChild(wrongBox);
+      }
     }
-    btn.onclick = () => doPlayWord(w);
-  });
+  } else {
+    const g = document.getElementById('cw-choices');
+    if (g) Array.from(g.querySelectorAll('button')).forEach(btn => {
+      const w = btn.dataset.word;
+      let mark = '';
+      if (w === q.correct)   { btn.style.background = t.correctDim; btn.style.borderColor = t.correct; btn.style.color = t.correct; if (t.scanlines) btn.style.boxShadow = `0 0 8px ${t.correct}88`; mark = '✓'; }
+      else if (w === choice) { btn.style.background = t.wrongDim;   btn.style.borderColor = t.wrong;   btn.style.color = t.wrong; mark = '✗'; }
+      else                   { btn.style.color = t.textMuted; }
+      if (mark) {
+        btn.style.position = 'relative';
+        btn.appendChild(el('span', { 'aria-hidden':'true', style:{
+          position:'absolute', top:'3px', right:'6px',
+          fontSize:'13px', fontWeight:'800', letterSpacing:'0',
+          color: mark === '✓' ? t.correct : t.wrong,
+        }}, mark));
+      }
+      btn.onclick = () => doPlayWord(w);
+    });
+  }
 }
 
 function _hideWave() {
@@ -2860,18 +2988,46 @@ function transitionToReady() {
     pa.appendChild(replayCircle);
   }
   const statusEl = document.getElementById('cw-status');
-  if (statusEl) { statusEl.textContent = 'Select the word you heard'; statusEl.style.color = t.textMuted; statusEl.style.fontWeight = ''; statusEl.style.fontSize = '13px'; }
-  const gridEl = document.getElementById('cw-choices');
-  if (gridEl) {
-    gridEl.style.opacity = '1';
-    gridEl.style.pointerEvents = 'auto';
-    Array.from(gridEl.querySelectorAll('button')).forEach(btn => {
-      btn.style.opacity = '1';
-      btn.style.cursor = 'pointer';
-      btn.classList.add('btn-choice-hover');
-      const word = btn.dataset.word;
-      btn.addEventListener('click', () => handleAnswer(word));
-    });
+  if (statusEl) {
+    statusEl.textContent = state.cfg.keyboardInput ? 'Type the word you heard…' : 'Select the word you heard';
+    statusEl.style.color = t.textMuted; statusEl.style.fontWeight = ''; statusEl.style.fontSize = '13px';
+  }
+  if (state.cfg.keyboardInput) {
+    const kbDiv = document.getElementById('cw-kb-display');
+    if (kbDiv) {
+      kbDiv.innerHTML = '';
+      const inputBox = el('div', { style:{
+        background:t.bgCard, border:`2px solid ${t.accent}`,
+        borderRadius: t.scanlines ? '2px' : '12px', padding:'18px 20px',
+        textAlign:'center', minHeight:'64px', display:'flex', alignItems:'center', justifyContent:'center',
+      }});
+      const typedSpan = el('span', { id:'kb-typed-text', style:{
+        fontFamily:t.mono, fontSize:'24px', fontWeight:'700', letterSpacing:'4px', color:t.text,
+      }}, state.kbTyped.toUpperCase());
+      const cursor = el('span', { id:'kb-cursor', 'aria-hidden':'true', style:{
+        fontFamily:t.mono, fontSize:'24px', fontWeight:'300', color:t.accent,
+        animation:'blink 1s step-end infinite', marginLeft:'2px',
+      }}, '|');
+      inputBox.appendChild(typedSpan);
+      inputBox.appendChild(cursor);
+      kbDiv.appendChild(inputBox);
+      kbDiv.appendChild(el('div', { style:{
+        textAlign:'center', fontSize:'11px', color:t.textMuted, marginTop:'8px', fontFamily:t.mono, letterSpacing:'1px',
+      }}, 'Enter to submit · Backspace to delete · Space to replay'));
+    }
+  } else {
+    const gridEl = document.getElementById('cw-choices');
+    if (gridEl) {
+      gridEl.style.opacity = '1';
+      gridEl.style.pointerEvents = 'auto';
+      Array.from(gridEl.querySelectorAll('button')).forEach(btn => {
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+        btn.classList.add('btn-choice-hover');
+        const word = btn.dataset.word;
+        btn.addEventListener('click', () => handleAnswer(word));
+      });
+    }
   }
   const cardEl = document.getElementById('cw-card');
   if (cardEl) { cardEl.style.cursor = 'pointer'; cardEl.onclick = doReplay; }
@@ -2887,36 +3043,58 @@ function transitionToPlaying() {
   if (revealEl) revealEl.remove();
   const wrongActEl = document.getElementById('cw-wrong-actions');
   if (wrongActEl) wrongActEl.remove();
-  const gridEl = document.getElementById('cw-choices');
-  if (gridEl) {
-    gridEl.style.opacity = '0';
-    gridEl.style.pointerEvents = 'none';
-    gridEl.innerHTML = '';
-    state.q.choices.forEach((ch, idx) => {
-      const btn = el('button', {
-        'data-word': ch,
-        'aria-label': `Choice ${idx + 1}: ${ch}`,
-        style:{
-          position:'relative',
-          padding:'12px 8px', border:`2px solid ${t.border}`,
-          borderRadius: t.scanlines ? '2px' : '10px',
-          background:t.bgCard, color:t.text, fontSize:'15px', fontWeight:'700',
-          fontFamily:t.mono, letterSpacing:'2px', textAlign:'center', transition:'all 0.15s',
-          opacity:'0.4', cursor:'default',
-        }}, ch.toUpperCase());
-      btn.appendChild(el('span', { 'aria-hidden':'true', style:{
-        position:'absolute', bottom:'3px', right:'6px',
-        fontSize:'10px', fontWeight:'600', letterSpacing:'0', lineHeight:'1',
-        color: t.border, opacity:'0.4',
-      }}, String(idx + 1)));
-      gridEl.appendChild(btn);
-    });
+  if (state.cfg.keyboardInput) {
+    const kbDiv = document.getElementById('cw-kb-display');
+    if (kbDiv) {
+      kbDiv.innerHTML = '';
+      const inputBox = el('div', { style:{
+        background:t.bgCard, border:`2px solid ${t.border}`,
+        borderRadius: t.scanlines ? '2px' : '12px', padding:'18px 20px',
+        textAlign:'center', minHeight:'64px', display:'flex', alignItems:'center', justifyContent:'center',
+        opacity:'0.4',
+      }});
+      inputBox.appendChild(el('span', { style:{
+        fontFamily:t.mono, fontSize:'24px', fontWeight:'300', color:t.textMuted,
+      }}, '|'));
+      kbDiv.appendChild(inputBox);
+    }
+  } else {
+    const gridEl = document.getElementById('cw-choices');
+    if (gridEl) {
+      gridEl.style.opacity = '0';
+      gridEl.style.pointerEvents = 'none';
+      gridEl.innerHTML = '';
+      state.q.choices.forEach((ch, idx) => {
+        const btn = el('button', {
+          'data-word': ch,
+          'aria-label': `Choice ${idx + 1}: ${ch}`,
+          style:{
+            position:'relative',
+            padding:'12px 8px', border:`2px solid ${t.border}`,
+            borderRadius: t.scanlines ? '2px' : '10px',
+            background:t.bgCard, color:t.text, fontSize:'15px', fontWeight:'700',
+            fontFamily:t.mono, letterSpacing:'2px', textAlign:'center', transition:'all 0.15s',
+            opacity:'0.4', cursor:'default',
+          }}, ch.toUpperCase());
+        btn.appendChild(el('span', { 'aria-hidden':'true', style:{
+          position:'absolute', bottom:'3px', right:'6px',
+          fontSize:'10px', fontWeight:'600', letterSpacing:'0', lineHeight:'1',
+          color: t.border, opacity:'0.4',
+        }}, String(idx + 1)));
+        gridEl.appendChild(btn);
+      });
+    }
   }
   const cardEl = document.getElementById('cw-card');
   if (cardEl) cardEl.style.cursor = 'default';
 }
 
 function doReplay() { return doPlayWord(state.q.correct); }
+
+function updateKbDisplay() {
+  const span = document.getElementById('kb-typed-text');
+  if (span) span.textContent = state.kbTyped.toUpperCase();
+}
 
 function handleAnswer(choice) {
   if (state.playState !== 'ready') return;
@@ -2958,6 +3136,7 @@ function handleNext() {
   clearTimeout(state.autoPlayTimer);
   state.q = makeQuestion(state.cfg.listKey);
   state.chosen = null;
+  state.kbTyped = '';
   if (state.playing) {
     // Replay is in progress — set idle so doPlayWord picks it up after audio
     state.playState = 'idle';
@@ -2973,19 +3152,52 @@ function handleNext() {
 document.addEventListener('keydown', e => {
   // Esc closes settings modal regardless of screen
   if (e.key === 'Escape' && state.settingsOpen) { state.settingsOpen = false; render(); return; }
+
+  // Summary screen shortcuts
+  if (state.screen === 'summary') {
+    if (e.key === 'Enter') { e.preventDefault(); startPractice(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); goSettings(); return; }
+    return;
+  }
+
   if (state.screen !== 'practice') return;
 
   const key = e.key;
+  const kbMode = state.cfg.keyboardInput;
+
   if (state.playState === 'answered') {
-    if (key === 'Enter' && !state.playing)      { e.preventDefault(); handleNext(); return; }
+    if (key === 'Enter' && !state.playing)        { e.preventDefault(); handleNext(); return; }
     if (key === ' ' || key.toLowerCase() === 'r') { e.preventDefault(); doReplay(); return; }
   }
   if (state.playState === 'idle' || state.playState === 'ready') {
     if (key === ' ' || key.toLowerCase() === 'r') { e.preventDefault(); doPlay(); return; }
   }
   if (state.playState === 'ready') {
-    const n = parseInt(key);
-    if (n >= 1 && n <= state.q.choices.length) { e.preventDefault(); handleAnswer(state.q.choices[n - 1]); }
+    if (kbMode) {
+      // Keyboard input mode: capture typing
+      if (key === 'Enter') {
+        e.preventDefault();
+        const typed = state.kbTyped.toLowerCase().trim();
+        handleAnswer(typed.length > 0 ? typed : '');
+        return;
+      }
+      if (key === 'Backspace') {
+        e.preventDefault();
+        state.kbTyped = state.kbTyped.slice(0, -1);
+        updateKbDisplay();
+        return;
+      }
+      if (key.length === 1 && /[a-zA-Z0-9\-\/]/.test(key)) {
+        e.preventDefault();
+        state.kbTyped += key;
+        updateKbDisplay();
+        return;
+      }
+    } else {
+      // Button mode: number keys select answer
+      const n = parseInt(key);
+      if (n >= 1 && n <= state.q.choices.length) { e.preventDefault(); handleAnswer(state.q.choices[n - 1]); }
+    }
   }
 });
 
