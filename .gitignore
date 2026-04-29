@@ -1,6 +1,7 @@
 .DS_Store
 *.zip
 words/
+audio/
 design-canvas.jsx
 design_handoff_cw_practice/
 docs/
