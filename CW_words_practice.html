@@ -2224,29 +2224,7 @@ function renderPractice(t) {
     // Keyboard input area — replaces choice grid
     const kbArea = el('div', { id:'cw-kb-display', style:{ marginTop:'4px' }});
     if (!answered) {
-      // Input display box
-      const inputBox = el('div', { style:{
-        background:t.bgCard, border:`2px solid ${canAnswer ? t.accent : t.border}`,
-        borderRadius: t.scanlines ? '2px' : '12px', padding:'18px 20px',
-        textAlign:'center', minHeight:'64px', display:'flex', alignItems:'center', justifyContent:'center',
-        transition:'border-color 0.2s',
-        opacity: canAnswer ? '1' : '0.4',
-      }});
-      const typedSpan = el('span', { id:'kb-typed-text', style:{
-        fontFamily:t.mono, fontSize:'24px', fontWeight:'700', letterSpacing:'4px', color:t.text,
-      }}, state.kbTyped.toUpperCase());
-      const cursor = el('span', { id:'kb-cursor', 'aria-hidden':'true', style:{
-        fontFamily:t.mono, fontSize:'24px', fontWeight:'300', color:t.accent,
-        animation: canAnswer ? 'blink 1s step-end infinite' : 'none', marginLeft:'2px',
-      }}, '|');
-      inputBox.appendChild(typedSpan);
-      if (canAnswer) inputBox.appendChild(cursor);
-      kbArea.appendChild(inputBox);
-      if (canAnswer) {
-        kbArea.appendChild(el('div', { style:{
-          textAlign:'center', fontSize:'11px', color:t.textMuted, marginTop:'8px', fontFamily:t.mono, letterSpacing:'1px',
-        }}, 'Enter to submit · Backspace to delete · Space to replay'));
-      }
+      kbArea.appendChild(_buildKbInputBox(t, canAnswer));
     } else {
       // Result display
       const isOk = chosen === q.correct;
@@ -2996,24 +2974,7 @@ function transitionToReady() {
     const kbDiv = document.getElementById('cw-kb-display');
     if (kbDiv) {
       kbDiv.innerHTML = '';
-      const inputBox = el('div', { style:{
-        background:t.bgCard, border:`2px solid ${t.accent}`,
-        borderRadius: t.scanlines ? '2px' : '12px', padding:'18px 20px',
-        textAlign:'center', minHeight:'64px', display:'flex', alignItems:'center', justifyContent:'center',
-      }});
-      const typedSpan = el('span', { id:'kb-typed-text', style:{
-        fontFamily:t.mono, fontSize:'24px', fontWeight:'700', letterSpacing:'4px', color:t.text,
-      }}, state.kbTyped.toUpperCase());
-      const cursor = el('span', { id:'kb-cursor', 'aria-hidden':'true', style:{
-        fontFamily:t.mono, fontSize:'24px', fontWeight:'300', color:t.accent,
-        animation:'blink 1s step-end infinite', marginLeft:'2px',
-      }}, '|');
-      inputBox.appendChild(typedSpan);
-      inputBox.appendChild(cursor);
-      kbDiv.appendChild(inputBox);
-      kbDiv.appendChild(el('div', { style:{
-        textAlign:'center', fontSize:'11px', color:t.textMuted, marginTop:'8px', fontFamily:t.mono, letterSpacing:'1px',
-      }}, 'Enter to submit · Backspace to delete · Space to replay'));
+      kbDiv.appendChild(_buildKbInputBox(t, true));
     }
   } else {
     const gridEl = document.getElementById('cw-choices');
@@ -3045,19 +3006,7 @@ function transitionToPlaying() {
   if (wrongActEl) wrongActEl.remove();
   if (state.cfg.keyboardInput) {
     const kbDiv = document.getElementById('cw-kb-display');
-    if (kbDiv) {
-      kbDiv.innerHTML = '';
-      const inputBox = el('div', { style:{
-        background:t.bgCard, border:`2px solid ${t.border}`,
-        borderRadius: t.scanlines ? '2px' : '12px', padding:'18px 20px',
-        textAlign:'center', minHeight:'64px', display:'flex', alignItems:'center', justifyContent:'center',
-        opacity:'0.4',
-      }});
-      inputBox.appendChild(el('span', { style:{
-        fontFamily:t.mono, fontSize:'24px', fontWeight:'300', color:t.textMuted,
-      }}, '|'));
-      kbDiv.appendChild(inputBox);
-    }
+    if (kbDiv) { kbDiv.innerHTML = ''; kbDiv.appendChild(_buildKbInputBox(t, false)); }
   } else {
     const gridEl = document.getElementById('cw-choices');
     if (gridEl) {
@@ -3091,9 +3040,57 @@ function transitionToPlaying() {
 
 function doReplay() { return doPlayWord(state.q.correct); }
 
+function _buildKbInputBox(t, active) {
+  const wrap = el('div', {});
+  const box = el('div', { style:{
+    background:t.bgCard, border:`2px solid ${active ? t.accent : t.border}`,
+    borderRadius: t.scanlines ? '2px' : '12px', padding:'10px 16px',
+    display:'flex', alignItems:'center', justifyContent:'center',
+    minHeight:'64px', transition:'border-color 0.2s',
+    opacity: active ? '1' : '0.4',
+  }});
+  if (active) {
+    const inp = el('input', {
+      id: 'kb-real-input',
+      type: 'text',
+      autocomplete: 'off',
+      autocorrect: 'off',
+      autocapitalize: 'none',
+      spellcheck: 'false',
+      placeholder: 'tap here to type…',
+      value: state.kbTyped.toUpperCase(),
+      style:{
+        width:'100%', background:'transparent', border:'none', outline:'none',
+        fontFamily:t.mono, fontSize:'24px', fontWeight:'700', letterSpacing:'4px',
+        textAlign:'center', color:t.text, caretColor:t.accent,
+      },
+    });
+    inp.addEventListener('input', e => {
+      const filtered = e.target.value.replace(/[^a-zA-Z0-9\-\/]/g, '');
+      state.kbTyped = filtered.toLowerCase();
+      e.target.value = state.kbTyped.toUpperCase();
+    });
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); const typed = state.kbTyped.trim(); handleAnswer(typed.length > 0 ? typed : ''); }
+      if (e.key === ' ' || e.key.toLowerCase() === 'r') { e.preventDefault(); e.stopPropagation(); doPlay(); }
+    });
+    box.appendChild(inp);
+    setTimeout(() => inp.focus(), 0);
+  } else {
+    box.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'24px', fontWeight:'300', color:t.textMuted }}, '|'));
+  }
+  wrap.appendChild(box);
+  if (active) {
+    wrap.appendChild(el('div', { style:{
+      textAlign:'center', fontSize:'11px', color:t.textMuted, marginTop:'8px', fontFamily:t.mono, letterSpacing:'1px',
+    }}, 'Enter to submit · Backspace to delete · Space to replay'));
+  }
+  return wrap;
+}
+
 function updateKbDisplay() {
-  const span = document.getElementById('kb-typed-text');
-  if (span) span.textContent = state.kbTyped.toUpperCase();
+  const inp = document.getElementById('kb-real-input');
+  if (inp) inp.value = state.kbTyped.toUpperCase();
 }
 
 function handleAnswer(choice) {
@@ -3174,25 +3171,14 @@ document.addEventListener('keydown', e => {
   }
   if (state.playState === 'ready') {
     if (kbMode) {
-      // Keyboard input mode: capture typing
-      if (key === 'Enter') {
-        e.preventDefault();
-        const typed = state.kbTyped.toLowerCase().trim();
-        handleAnswer(typed.length > 0 ? typed : '');
-        return;
+      // Space/R replay already handled above; everything else goes to the real <input>.
+      // Focus it if a physical key was pressed and it isn't focused yet.
+      const inp = document.getElementById('kb-real-input');
+      if (inp && document.activeElement !== inp) {
+        inp.focus();
+        if (key === 'Backspace') e.preventDefault(); // prevent browser back-navigation
       }
-      if (key === 'Backspace') {
-        e.preventDefault();
-        state.kbTyped = state.kbTyped.slice(0, -1);
-        updateKbDisplay();
-        return;
-      }
-      if (key.length === 1 && /[a-zA-Z0-9\-\/]/.test(key)) {
-        e.preventDefault();
-        state.kbTyped += key;
-        updateKbDisplay();
-        return;
-      }
+      // Enter/letters/backspace are handled by the input's own keydown+input listeners.
     } else {
       // Button mode: number keys select answer
       const n = parseInt(key);
