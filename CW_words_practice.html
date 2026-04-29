@@ -2776,7 +2776,7 @@ async function doPlay() {
 // In Screen Reader Mode, read the four choices aloud after Morse plays so the
 // user can pick by number key (1–4) without seeing the screen.
 function speakChoicesIfSR() {
-  if (!state.cfg.screenReaderMode || !state.q) return;
+  if (!state.cfg.screenReaderMode || !state.q || state.cfg.keyboardInput) return;
   if (!window.speechSynthesis) return;
   // Speak "Choose" then each choice with a 300 ms gap between utterances
   const items = ['Choose:', ...state.q.choices.map((c, i) => `${i + 1}. ${c}`)];
@@ -3105,19 +3105,33 @@ function handleAnswer(choice) {
 
   const sessionDone = state.sessionLog.length >= state.cfg.sessionSize;
   const sr = state.cfg.screenReaderMode;
+  const kb = state.cfg.keyboardInput;
+  const voice = state.cfg.listenVoice;
+
+  function advance() {
+    if (sessionDone) { stopSpeechHeartbeat(); updateMissedWords(state.sessionLog); state.screen = 'summary'; render(); }
+    else handleNext();
+  }
+
   if (ok) {
-    if (state.cfg.listenVoice) speakWord(choice);
-    if (sr) {
-      setTimeout(() => announceTTS(`Correct. ${state.score.c} of ${state.score.t}.`), 700);
+    if (kb && voice) {
+      // KB mode: say "Correct" then the word, then advance
+      speakWord('Correct').then(() => speakWord(choice)).then(() => setTimeout(advance, 300));
+    } else {
+      if (voice) speakWord(choice);
+      if (sr) setTimeout(() => announceTTS(`Correct. ${state.score.c} of ${state.score.t}.`), 700);
+      setTimeout(advance, sr ? 2400 : 1100);
     }
-    const delay = sr ? 2400 : 1100;
-    setTimeout(() => {
-      if (sessionDone) { stopSpeechHeartbeat(); updateMissedWords(state.sessionLog); state.screen = 'summary'; render(); return; }
-      handleNext();
-    }, delay);
   } else {
-    if (state.cfg.listenVoice) {
-      // Speak wrong word → 0.5s pause → speak correct word → then (SR) score → replay morse
+    if (kb && voice) {
+      // KB mode: say "Incorrect", typed word, correct word, then replay morse
+      speakWord('Incorrect')
+        .then(() => new Promise(r => setTimeout(r, 200)))
+        .then(() => choice ? speakWord(choice) : Promise.resolve())
+        .then(() => new Promise(r => setTimeout(r, 300)))
+        .then(() => speakWord(state.q.correct))
+        .then(() => doReplay());
+    } else if (voice) {
       let chain = speakWord(choice)
         .then(() => new Promise(r => setTimeout(r, 500)))
         .then(() => speakWord(state.q.correct));
@@ -3168,7 +3182,8 @@ document.addEventListener('keydown', e => {
     if (key === ' ' || key.toLowerCase() === 'r') { e.preventDefault(); doReplay(); return; }
   }
   if (state.playState === 'idle' || state.playState === 'ready') {
-    if (key === ' ' || key.toLowerCase() === 'r') { e.preventDefault(); doPlay(); return; }
+    // In keyboard-input mode 'r' is a letter to type; Space is still replay
+    if (key === ' ' || (key.toLowerCase() === 'r' && !(kbMode && state.playState === 'ready'))) { e.preventDefault(); doPlay(); return; }
   }
   if (state.playState === 'ready') {
     if (kbMode) {
