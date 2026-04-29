@@ -2605,7 +2605,10 @@ async function startPractice() {
   } else {
     announce(`Practice started. ${state.cfg.sessionSize} questions.`);
   }
-  doPlay();
+  // Delay first word when voice is on so the start announcement doesn't overlap Morse
+  const firstDelay = (state.cfg.listenVoice || state.cfg.screenReaderMode) ? 2000 : 0;
+  if (firstDelay) setTimeout(() => doPlay(), firstDelay);
+  else doPlay();
 }
 
 async function startListen() {
@@ -3073,10 +3076,13 @@ function _buildKbInputBox(t, active) {
       state.kbTyped = filtered.toLowerCase();
       e.target.value = state.kbTyped.toUpperCase();
     });
-    // No auto-focus: programmatic focus from async code silently focuses the
-    // element on iOS but suppresses the keyboard. Let the user's own tap be the
-    // first focus event so iOS shows the keyboard naturally.
+    // Focus synchronously so physical-keyboard users can type immediately.
+    // For iOS: async focus silently positions the cursor but the keyboard only
+    // appears on a touch event. The click handler below calls focus() inside
+    // the browser's gesture context on every tap, which reliably shows the keyboard.
     box.appendChild(inp);
+    inp.focus();
+    box.addEventListener('click', () => inp.focus());
   } else {
     box.appendChild(el('span', { style:{ fontFamily:t.mono, fontSize:'24px', fontWeight:'300', color:t.textMuted }}, '|'));
   }
