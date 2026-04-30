@@ -689,11 +689,12 @@ const state = {
     farnsworth:  _saved.farnsworth  ?? false,
     fwpm:        _saved.fwpm        ?? 15,
     sessionSize:    _saved.sessionSize    ?? 20,
-    listenMode:     _saved.listenMode     ?? false,
+    listenMode:     _saved.listenMode     ?? true,
     listenDuration: _saved.listenDuration ?? 1800,
     listenRepeatBefore: _saved.listenRepeatBefore ?? 0,
     listenRepeatAfter:  _saved.listenRepeatAfter  ?? (_saved.listenRepeat ?? 2),
-    listenDelay:    _saved.listenDelay    ?? 3,
+    listenDelay:    _saved.listenDelay    ?? 1,
+    listenFirstGap: _saved.listenFirstGap ?? 1,
     listenVoice:      _saved.listenVoice      ?? true,
     voiceVolume:      _saved.voiceVolume      ?? 75,
     cwVolume:         100,
@@ -883,11 +884,55 @@ function _ensureWordAudio() {
   return a;
 }
 
+// ── IndexedDB audio store (works over HTTP, unlike Cache API) ─────────────────
+let _idb = null;
+function _openIDB() {
+  if (_idb) return Promise.resolve(_idb);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('cw-audio', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('files');
+    req.onsuccess = e => { _idb = e.target.result; resolve(_idb); };
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+function _idbGet(key) {
+  return _openIDB().then(db => new Promise((resolve, reject) => {
+    const req = db.transaction('files', 'readonly').objectStore('files').get(key);
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  }));
+}
+function _idbPut(key, blob) {
+  return _openIDB().then(db => new Promise((resolve, reject) => {
+    const req = db.transaction('files', 'readwrite').objectStore('files').put(blob, key);
+    req.onsuccess = () => resolve();
+    req.onerror   = e => reject(e.target.error);
+  }));
+}
+function _idbCount() {
+  return _openIDB().then(db => new Promise((resolve, reject) => {
+    const req = db.transaction('files', 'readonly').objectStore('files').count();
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  }));
+}
+
+let _activeBlobUrl = null;
 function playWordAudio(text) {
-  return new Promise(resolve => {
+  return new Promise(async resolve => {
     const slug = _slugify(text);
-    const url = _wordManifest && _wordManifest[slug] ? _wordManifest[slug] : null;
-    if (!url) { resolve(); return; }
+    const manifestUrl = _wordManifest && _wordManifest[slug] ? _wordManifest[slug] : null;
+    if (!manifestUrl) { resolve(); return; }
+
+    // Revoke previous blob URL before creating a new one
+    if (_activeBlobUrl) { try { URL.revokeObjectURL(_activeBlobUrl); } catch(_){} _activeBlobUrl = null; }
+
+    let url = manifestUrl;
+    try {
+      const blob = await _idbGet(slug);
+      if (blob) { _activeBlobUrl = URL.createObjectURL(blob); url = _activeBlobUrl; }
+    } catch(_) {}
+
     const a = _ensureWordAudio();
     a.volume = Math.max(0, Math.min(1, (state.cfg.voiceVolume ?? 75) / 100));
     let done = false, started = false;
@@ -1086,8 +1131,8 @@ function renderManualContent(t) {
 
   P('CW Words Practice is a Morse code trainer for amateur radio operators. It is focus on CW Words practice.');
   P('It has mainly two modes, Listen and Practice mode.');
-  P('Listen mode mimic the MorseCode Ninja Audios, with the following enhancement: User setted Tone, User setted repeat time, User setted wait time till Natual Audio of the world sound, User pick woman/man voice.');
-  P('Practice mode is on interactive side — User pick the correct answer out of similar ones, Missed words are collected and User can do target traning later.');
+  P('Listen mode mimic the MorseCode Ninja Audios, with the following enhancement: User setted Tone, User setted repeat time before and after voice reveal, User setted wait time till Natual Audio of the world sound etc.');
+  P('Practice mode is on interactive side — User pick the correct answer out of similar ones, or type in what you hear with keyboard (when in keyboard mode), Missed words are collected and User can do target traning later.');
   P('Choose a word pool, set your speed, pick a mode, and start training.');
 
   S('Listen Mode');
@@ -1096,23 +1141,20 @@ function renderManualContent(t) {
   B('Announcement Dit', 'Before each new word a soft dit (the letter E) is played at reduced volume as a "new word coming" signal, followed by a brief pause.');
   B('Repeats Before Voice', 'How many extra Morse plays to insert between the first play and the voice reveal. Range: 0–10.');
   B('Repeats After Voice', 'How many Morse plays follow the voice reveal. Range: 0–10. When voice is off, total repeats = Before + After.');
-  B('Word Gap', 'The silence after the first Morse play — before the next repeat begins (voice off) or before the voice reveal starts (voice on). Expressed as a multiple (1×–20×) of the standard inter-word space at the current WPM. A larger value gives more thinking time.');
-  B('Voice Reveal', 'When enabled, the spoken English word is announced after the first Morse play. The spoken word comes after the first play; subsequent repeats are Morse only.');
+  B('Word Gap', 'The silence after each Morse play — before the next repeat begins (voice off) or before the voice reveal starts (voice on). Expressed as a multiple (1×–20×) of the standard inter-word space at the current WPM. A larger value gives more thinking time.');
+  B('Add Time First Gap', 'An extra fixed pause (0–5 s, in 0.5 s steps) inserted right before the voice reveal, on top of the normal Word Gap. Use this to give yourself more processing time before the word is spoken aloud. Has no effect when Voice Reveal is off.');
+  B('Voice Reveal', 'When enabled, the spoken English word is announced after the Morse plays and gap. Subsequent repeats are Morse only.');
 
   S('Practice Mode');
-  P('In Practice mode the app plays a word in Morse code and presents four multiple-choice answers. Select the correct word before time runs out.');
-  B('Word Pool', 'Choose from Top 100 up to Top 2000 common English words, QSO Elements (ham-radio phrases), or your personal Missed Words list.');
-  B('Character Speed', 'Sets how fast each character is sent (10–75 WPM). This is the true character rate.');
-  B('Session Size', 'Number of questions per session: 10, 20, 50, or 100. Results are shown at the end.');
-  B('Progress', 'Correct and total answers are tracked across the session. Accuracy is shown in the header and on the summary screen.');
-  B('Replay', 'Tap the waveform card area to replay the current word at any time before answering.');
+  P('In Practice mode the app plays a word in Morse code and presents six multiple-choice answers.');
+  B('Questions per Session', 'Choose 10, 20, 50, or 100 questions. After the last question the session summary is shown with your score and missed word list.');
 
-  S('Practice w/ Keyboard Input (v2.5)');
+  S('Practice w/ Keyboard Input');
   P('Keyboard Input mode replaces the multiple-choice buttons with a free-text entry field. Enable it in Settings → Session → Practice w/ Keyboard Input.');
   P('After the Morse plays, type what you heard using your keyboard (or the on-screen keyboard on touch devices). The display shows your input as you type, in large monospace letters.');
   B('Submitting', 'Press Enter to submit your answer. Matching is case-insensitive.');
   B('Editing', 'Press Backspace to delete the last character. You can correct your input before pressing Enter.');
-  B('Replay', 'Press Space or R to replay the Morse at any time before submitting. Enter submits; Space/R always replays.');
+  B('Replay', 'Press Space to replay the Morse at any time before submitting. Enter submits; Space always replays.');
   B('Correct answer', 'The display turns green and shows "✓ Correct!" If Voice Reveal is on, the word is spoken aloud.');
   B('Wrong answer', 'Two rows appear: "You typed:" (in red) and "Correct:" (in green), so you can compare them immediately. If Voice Reveal is on, the app speaks your typed word then the correct word, then replays the Morse.');
   B('Session end', 'The summary screen shows your score. Press Enter to play again or Esc to return Home.');
@@ -1125,15 +1167,6 @@ function renderManualContent(t) {
   P('Farnsworth spacing sends each character at full character speed but increases the space between characters and words. This lets you hear the correct rhythm of each character without needing to copy at high overall speed.');
   B('Spacing Speed', 'Sets the effective spacing rate (5 WPM minimum, up to the character speed). Lower values give wider gaps between characters. The character speed slider sets the dit length; the spacing speed slider controls pauses.');
 
-  S('Settings — Voice Reveal');
-  B('Gender', 'Choose Woman or Man voice. The app selects the best available voice in that category from your device\'s speech synthesis engine.');
-  B('Voice Speed', 'Playback rate for the spoken word (0.7× slow to 1.5× fast, in 0.1× steps). Default 1×.');
-  B('Voice Volume', 'Volume of the spoken word reveal, independent of the Morse tone. Range 1–100%.');
-  B('Allow Cloud Voices', 'On iOS and macOS, enabling this allows the system to use higher-quality cloud-based voices (requires internet). When off, only locally stored voices are used — works offline and is faster.');
-
-  S('Settings — Session (Practice)');
-  B('Questions per Session', 'Choose 10, 20, 50, or 100 questions. After the last question the session summary is shown with your score and missed word list.');
-
   S('Missed Words');
   P('When "Save Missed Words" is enabled (on by default), every word you answer incorrectly is recorded with a miss counter. The counter resets each time (to 2) you miss the same word again, and decrements by one each time you get it right.');
   P('The Missed Words word pool draws from your personal missed list. When a word\'s miss count reaches zero it is removed from the list.');
@@ -1141,9 +1174,8 @@ function renderManualContent(t) {
 
   S('Settings — Screen Reader Mode');
   P('Screen Reader Mode is designed for blind or low-vision users who rely on a screen reader or prefer full audio feedback.');
-  B('What it does', 'When enabled, the app speaks the four multiple-choice options aloud after each Morse play, announces your selection result ("Correct!" or "Wrong — the word was …"), and reads your running score. Voice Reveal is forced on so every word is spoken.');
+  B('What it does', 'When enabled, the app speaks the six multiple-choice options aloud after each Morse play, announces your selection result ("Correct!" or "Wrong — the word was …"), and reads your running score. Voice Reveal is forced on so every word is spoken.');
   B('How to use', 'Turn on Screen Reader Mode in Settings. Use the on-screen buttons or an external switch to select an answer — no visual scanning required. Pair with your device\'s system screen reader (VoiceOver on iOS/macOS, TalkBack on Android) for full navigation.');
-  B('Voice Speed', 'Adjust Voice Speed under Settings → Voice Reveal to slow down or speed up all spoken feedback, including choice announcements.');
 
   S('Settings — Theme');
   B('Shack', 'Dark amber theme inspired by a classic radio shack.');
@@ -1171,9 +1203,70 @@ function renderOfflineContent(t) {
   P('Look for the install icon (⊕) in the browser address bar and click it, or open the browser menu and choose "Install CW Words Practice". The app opens in its own window and works offline.');
 
   S('After Installation');
-  B('Cloud Voices', 'If you use cloud voices (Settings → Voice Reveal → Allow Cloud Voices), voice reveal requires internet. Switch this off to use only locally stored voices, which work fully offline.');
   B('Word Lists', 'All built-in word lists are bundled with the app and available offline. Your missed-words list is stored locally on your device.');
 
+  // ── Download Audio button ──────────────────────────────────────────────────
+  S('Download Audio for Offline Use');
+  P('Tap the button below while connected to Wi-Fi to download all word audio files (~8.5 MB total) to this device. Once complete, voice reveal works with no internet connection.');
+
+  const statusDiv = el('div', { style:{ fontSize:'12px', color:t.textMuted, marginBottom:'10px', minHeight:'18px' }});
+  div.appendChild(statusDiv);
+
+  const btn = el('button', { style:{
+    width:'100%', padding:'12px', borderRadius:'10px',
+    background:t.accent, color:t.accentText,
+    border:'none', fontSize:'14px', fontWeight:'700',
+    cursor:'pointer', marginBottom:'8px',
+  }}, 'Download Audio Files');
+
+  // Show current cached count on open
+  _idbCount().then(n => {
+    const total = Object.keys(_wordManifest).length;
+    statusDiv.textContent = n >= total ? `✓ All ${total} files downloaded.` : n > 0 ? `${n} / ${total} files downloaded.` : '';
+  }).catch(() => {});
+
+  btn.addEventListener('click', async () => {
+    const slugs = Object.keys(_wordManifest);
+    const total = slugs.length;
+
+    let cachedCount;
+    try { cachedCount = await _idbCount(); } catch(e) { statusDiv.textContent = 'IndexedDB error: ' + e.message; return; }
+    if (cachedCount >= total) { statusDiv.textContent = `✓ All ${total} files already downloaded.`; return; }
+    if (!navigator.onLine) { statusDiv.textContent = 'Not connected — connect to Wi-Fi first.'; return; }
+
+    btn.disabled = true;
+    const CHUNK = 10;
+    let done = 0;
+
+    for (let i = 0; i < slugs.length; i += CHUNK) {
+      if (!navigator.onLine) {
+        const n = await _idbCount().catch(() => 0);
+        statusDiv.textContent = `Paused — offline. ${n}/${total} saved. Tap again to resume.`;
+        btn.disabled = false; btn.textContent = 'Resume Download';
+        return;
+      }
+      const chunk = slugs.slice(i, i + CHUNK);
+      await Promise.allSettled(chunk.map(async slug => {
+        try {
+          const existing = await _idbGet(slug);
+          if (existing) return;
+          const res = await fetch(_wordManifest[slug]);
+          if (res.ok) await _idbPut(slug, await res.blob());
+        } catch(_) {}
+      }));
+      done += chunk.length;
+      statusDiv.textContent = `Downloading: ${done} / ${total}`;
+      btn.textContent = `Downloading… ${Math.round(done/total*100)}%`;
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    const finalCount = await _idbCount().catch(() => 0);
+    statusDiv.textContent = `✓ ${finalCount} / ${total} files saved — app works offline.`;
+    btn.disabled = false;
+    btn.textContent = finalCount >= total ? 'Download Complete ✓' : 'Retry Download';
+  });
+
+  div.appendChild(btn);
   return div;
 }
 
@@ -1232,7 +1325,7 @@ function renderAboutContent(t) {
     row.appendChild(el('span', { style:{ fontSize:'13px', fontWeight:'600', color:t.text, fontFamily:t.mono }}, value));
     infoBox.appendChild(row);
   }
-  infoRow('Version', '2.5');
+  infoRow('Version', '3.1');
   infoRow('Platform', 'Progressive Web App');
   infoRow('Audio', 'Web Audio API');
   div.appendChild(infoBox);
@@ -1462,19 +1555,6 @@ function renderSettings(t) {
   modeSec.appendChild(modeRow);
   wrap.appendChild(modeSec);
 
-  // Voice Reveal quick toggle
-  const voiceRevealRow = el('div', { style:{
-    display:'flex', alignItems:'center', justifyContent:'space-between',
-    padding:'12px 16px', marginBottom:'16px',
-    background:t.bgCard, border:`1px solid ${t.border}`,
-    borderRadius:'10px',
-  }});
-  const voiceRevealLeft = el('div', {});
-  voiceRevealLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, 'Voice Reveal'));
-  voiceRevealLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Speak word aloud after first Morse play'));
-  voiceRevealRow.appendChild(voiceRevealLeft);
-  voiceRevealRow.appendChild(renderToggle(t, cfg.listenVoice || cfg.screenReaderMode, () => { cfg.listenVoice = !cfg.listenVoice; saveTweaks(); render(); }, 'Voice Reveal', { disabled: cfg.screenReaderMode }));
-  wrap.appendChild(voiceRevealRow);
 
   // Settings sub-window button
   const settingsRow = el('div', { style:{ marginBottom:'28px' }});
@@ -1487,7 +1567,7 @@ function renderSettings(t) {
   }});
   const settingsLeft = el('div', {});
   settingsLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, '⚙ Settings'));
-  settingsLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Tone · Mode · Farnsworth · Voice Reveal · Theme'));
+  settingsLeft.appendChild(el('div', { style:{ fontSize:'11px', color:t.textMuted, marginTop:'2px' }}, 'Tone · Mode · Voice Reveal · Farnsworth · Theme'));
   settingsToggleBtn.appendChild(settingsLeft);
   settingsToggleBtn.appendChild(el('span', { style:{ color:t.textMuted, fontSize:'16px', marginLeft:'auto' }}, '›'));
   settingsToggleBtn.addEventListener('click', () => { state.settingsOpen = true; render(); });
@@ -1716,6 +1796,28 @@ function renderSettingsModal(t) {
     dlyRow.appendChild(dlyLbl); dlyRow.appendChild(dlyStepper);
     lnExtra.appendChild(dlyRow);
 
+    // Add time first gap
+    lnExtra.appendChild(el('div', { style:{ height:'10px' }}));
+    const fgRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between' }});
+    const fgLbl = el('div', { style:{ fontSize:'11px', fontWeight:'600', color:t.textMuted, letterSpacing:'1.5px', textTransform:'uppercase' }}, 'Add Time First Gap');
+    const fgStepper = el('div', { role:'group', 'aria-label':'Add Time First Gap', style:{ display:'flex', alignItems:'center', gap:'8px', width:'120px', flexShrink:'0', justifyContent:'flex-end' }});
+    const fgMinus = el('button', { 'aria-label':'Decrease first gap time', style:stepBtnStyle }, '−');
+    const fgVal = el('span', { 'aria-live':'polite', 'aria-label': `Add Time First Gap: ${cfg.listenFirstGap}s`, style:{ fontFamily:t.mono, fontSize:'18px', fontWeight:'600', color:t.accent, minWidth:'40px', textAlign:'center' }}, cfg.listenFirstGap === 0 ? '0s' : `${cfg.listenFirstGap.toFixed(1)}s`);
+    const fgPlus = el('button', { 'aria-label':'Increase first gap time', style:stepBtnStyle }, '+');
+    fgMinus.addEventListener('click', () => {
+      cfg.listenFirstGap = Math.max(0, Math.round((cfg.listenFirstGap - 0.5) * 10) / 10);
+      fgVal.textContent = cfg.listenFirstGap === 0 ? '0s' : `${cfg.listenFirstGap.toFixed(1)}s`;
+      saveTweaks();
+    });
+    fgPlus.addEventListener('click', () => {
+      cfg.listenFirstGap = Math.min(5, Math.round((cfg.listenFirstGap + 0.5) * 10) / 10);
+      fgVal.textContent = cfg.listenFirstGap === 0 ? '0s' : `${cfg.listenFirstGap.toFixed(1)}s`;
+      saveTweaks();
+    });
+    fgStepper.appendChild(fgMinus); fgStepper.appendChild(fgVal); fgStepper.appendChild(fgPlus);
+    fgRow.appendChild(fgLbl); fgRow.appendChild(fgStepper);
+    lnExtra.appendChild(fgRow);
+
     secMode.appendChild(lnExtra);
   }
   if (!cfg.listenMode) {
@@ -1753,12 +1855,12 @@ function renderSettingsModal(t) {
 
   // Farnsworth
   const sec3 = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
-  const fwRow = el('div', { style:{ display:'flex', alignItems:'center', gap:'12px' }});
+  const fwRow = el('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px' }});
+  const fwLeft = el('div', { style:{ flex:'1' }});
+  fwLeft.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px', color:t.text }}, 'Farnsworth Timing'));
+  fwLeft.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Characters at full speed, extra space between them'));
+  fwRow.appendChild(fwLeft);
   fwRow.appendChild(renderToggle(t, cfg.farnsworth, () => { cfg.farnsworth = !cfg.farnsworth; saveTweaks(); render(); }, 'Farnsworth Timing'));
-  const fwText = el('div', {});
-  fwText.appendChild(el('div', { style:{ fontWeight:'600', fontSize:'14px' }}, 'Farnsworth Timing'));
-  fwText.appendChild(el('div', { style:{ fontSize:'12px', color:t.textMuted, marginTop:'2px' }}, 'Characters at full speed, extra space between them'));
-  fwRow.appendChild(fwText);
   sec3.appendChild(fwRow);
   if (cfg.farnsworth) {
     const fwExtra = el('div', { style:{ marginTop:'16px', paddingTop:'16px', borderTop:`1px solid ${t.border}` }});
@@ -1781,7 +1883,6 @@ function renderSettingsModal(t) {
     fwExtra.appendChild(fwRange);
     sec3.appendChild(fwExtra);
   }
-  modal.appendChild(sec3);
 
   // Natural Voice — on/off switch + gender + cloud toggle
   const secVoice = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
@@ -1819,6 +1920,7 @@ function renderSettingsModal(t) {
     secVoice.appendChild(volRow);
   }
   modal.appendChild(secVoice);
+  modal.appendChild(sec3);
 
   // Save Missed Words
   const secMissed = el('div', { style:{ marginBottom:'20px', background:t.bg, border:`1px solid ${t.border}`, borderRadius:'10px', padding:'14px 16px' }});
@@ -2379,6 +2481,31 @@ async function unlockAudio() {
   // Warm the audio output stack so the first real playback starts at full
   // amplitude on its very first sample (kills the cold-start fade on macOS).
   primeAudio(0.2);
+  // Warm _wordAudio (the HTMLAudioElement for .m4a word reveals) with a short
+  // silent WAV. Browsers require at least one play() within a user-gesture context
+  // before allowing programmatic play() from async code. In listen mode playWordAudio
+  // is called deep inside an async loop — outside any gesture — so without this
+  // warm-up the browser silently blocks it. Practice mode avoids the bug because
+  // playWordAudio happens from a click handler (a fresh gesture), but that shouldn't
+  // be the only path that unlocks the element.
+  {
+    const wa = _ensureWordAudio();
+    const sr = 8000, n = Math.floor(sr * 0.05);
+    const buf = new ArrayBuffer(44 + n * 2);
+    const dv = new DataView(buf);
+    const wr4 = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+    wr4(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); wr4(8, 'WAVE');
+    wr4(12, 'fmt '); dv.setUint32(16, 16, true);
+    dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+    dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true);
+    dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+    wr4(36, 'data'); dv.setUint32(40, n * 2, true);
+    const warmUrl = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+    wa.volume = 0;
+    wa.src = warmUrl;
+    try { const p = wa.play(); if (p) await p.then(() => wa.pause(), () => {}); } catch(_) {}
+    setTimeout(() => { try { URL.revokeObjectURL(warmUrl); } catch(_) {} }, 1000);
+  }
   // Warm _morseAudio (the single reused HTMLAudioElement for all iOS blobs)
   // with a 1.5 s silent blob. unlockAudio() already warms the AudioContext and
   // _silentAudio, but _morseAudio stays cold until its first real play(). iOS
@@ -2475,15 +2602,7 @@ async function startPractice() {
   render();                     // immediate screen switch on first tap
   await unlockAudio();          // iOS audio unlock — must stay within gesture handler
   state._startingPractice = false;
-  if (state.cfg.screenReaderMode) {
-    announceTTS(`Practice started. ${state.cfg.sessionSize} questions at ${state.cfg.wpm} words per minute.`);
-  } else {
-    announce(`Practice started. ${state.cfg.sessionSize} questions.`);
-  }
-  // Delay first word when voice is on so the start announcement doesn't overlap Morse
-  const firstDelay = (state.cfg.listenVoice || state.cfg.screenReaderMode) ? 2000 : 0;
-  if (firstDelay) setTimeout(() => doPlay(), firstDelay);
-  else doPlay();
+  doPlay();
 }
 
 async function startListen() {
@@ -2565,6 +2684,7 @@ async function startListen() {
       if (ls.stopRequested) break;
       await listenSleep(cfg.listenDelay * stdGap, ls);
       if (ls.stopRequested) break;
+      if ((cfg.listenFirstGap ?? 0) > 0) { await listenSleep(cfg.listenFirstGap * 1000, ls); if (ls.stopRequested) break; }
       await playWordAudio(word);
       if (ls.stopRequested) break;
       { try { const ctx = getCtx(); if (ctx.state === 'suspended') ctx.resume().catch(() => {}); } catch(e) {} }
@@ -3118,7 +3238,8 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').then(reg => {
     // Force iOS to re-fetch sw.js on every load — without this, iOS PWAs can
     // sit on a stale service worker indefinitely and never show the update banner.
-    reg.update().catch(() => {});
+    // Skip when offline: the fetch would fail anyway and could delay SW readiness.
+    if (navigator.onLine) reg.update().catch(() => {});
     const track = nw => {
       if (!nw) return;
       nw.addEventListener('statechange', () => {
@@ -3134,6 +3255,7 @@ if ('serviceWorker' in navigator) {
       showUpdateBanner();
     }
     reg.addEventListener('updatefound', () => track(reg.installing));
+
   }).catch(() => {});
 
   navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -3142,6 +3264,7 @@ if ('serviceWorker' in navigator) {
     _swRefreshing = true;
     window.location.reload();
   });
+
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────

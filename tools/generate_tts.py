@@ -30,7 +30,7 @@ MANIFEST   = SCRIPT_DIR.parent / "audio" / "manifest.json"
 
 SAY_VOICE  = "Samantha"
 SAY_RATE   = 176          # "words per minute" for say; ~1.1× of Samantha's default 160 wpm
-AAC_BITRATE = "32000"     # bps; mono speech — 32k mono ≈ half the size of 64k stereo
+AAC_BITRATE = "24k"       # ffmpeg bitrate; 24k mono AAC ≈ 2KB/word (vs afconvert's 7KB with 4096-byte fixed overhead)
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Fixed phrases always passed to playWordAudio() ──────────────────────────
@@ -134,12 +134,13 @@ def generate_one(raw: str, spoken: str, force: bool = False) -> str | None:
             return None
 
         result = subprocess.run(
-            ["afconvert", aiff_path, str(out_path),
-             "-d", "aac", "-f", "m4af", "-b", AAC_BITRATE, "-c", "1"],
+            ["ffmpeg", "-y", "-i", aiff_path,
+             "-c:a", "aac", "-b:a", AAC_BITRATE, "-ac", "1",
+             str(out_path)],
             capture_output=True, text=True
         )
         if result.returncode != 0:
-            print(f"  WARN afconvert failed for {raw!r}: {result.stderr.strip()}", file=sys.stderr)
+            print(f"  WARN ffmpeg failed for {raw!r}: {result.stderr.strip()}", file=sys.stderr)
             return None
 
         return slug
