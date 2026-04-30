@@ -1,4 +1,4 @@
-const CACHE = 'cw-practice-v70';
+const CACHE = 'cw-practice-v71';
 const AUDIO_CACHE = 'cw-audio';   // stable name — survives SW version bumps
 const ASSETS = [
   './CW_words_practice.html',
